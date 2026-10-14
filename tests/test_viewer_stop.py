@@ -2,6 +2,23 @@ import pytest
 from win10_bridge_mcp import viewer, server
 
 
+@pytest.fixture(params=[False, True], ids=['uncached-native', 'cached-native'])
+def viewer_native(bridge, monkeypatch, request):
+    import sys
+    from types import SimpleNamespace
+    import win10_bridge_mcp
+    native, _ = bridge
+    # Windows ABI tests import the real module before these tests. Relative
+    # package imports can use that cached attribute instead of sys.modules.
+    if request.param:
+        monkeypatch.setattr(win10_bridge_mcp, 'windows_native', SimpleNamespace(), raising=False)
+    else:
+        monkeypatch.delattr(win10_bridge_mcp, 'windows_native', raising=False)
+    monkeypatch.setitem(sys.modules, 'win10_bridge_mcp.windows_native', native)
+    monkeypatch.setattr(win10_bridge_mcp, 'windows_native', native, raising=False)
+    return native
+
+
 def test_close_latches_stop():
     viewer.close_viewer()
     assert viewer.stopped()
@@ -45,13 +62,11 @@ def test_emergency_stop_closes_shared_preview_and_never_rearms(bridge):
     with pytest.raises(InterruptedError): viewer.show_viewer(native.current.id, {'notepad.exe'})
 
 
-def test_preview_start_is_not_mistaken_for_dead_process(bridge, monkeypatch):
+def test_preview_start_is_not_mistaken_for_dead_process(viewer_native, monkeypatch):
     import queue
-    import sys
     import threading
     from types import SimpleNamespace
-    native, _=bridge
-    monkeypatch.setitem(sys.modules, 'win10_bridge_mcp.windows_native', native)
+    native = viewer_native
     class Process:
         def __init__(self, *, target, args):
             self.args=args; self.alive=False
@@ -67,13 +82,11 @@ def test_preview_start_is_not_mistaken_for_dead_process(bridge, monkeypatch):
 
 
 @pytest.mark.parametrize('stop_check', [2, 3])
-def test_stop_at_preview_event_publication_or_ready(bridge, monkeypatch, stop_check):
+def test_stop_at_preview_event_publication_or_ready(viewer_native, monkeypatch, stop_check):
     import queue
-    import sys
     import threading
     from types import SimpleNamespace
-    native, _=bridge
-    monkeypatch.setitem(sys.modules, 'win10_bridge_mcp.windows_native', native)
+    native = viewer_native
     calls=[]
     def check():
         calls.append(1)
@@ -93,13 +106,11 @@ def test_stop_at_preview_event_publication_or_ready(bridge, monkeypatch, stop_ch
     assert native.SESSION_STOP.is_set()
 
 
-def test_preview_startup_error_retains_diagnostics(bridge, monkeypatch):
+def test_preview_startup_error_retains_diagnostics(viewer_native, monkeypatch):
     import queue
-    import sys
     import threading
     from types import SimpleNamespace
-    native, _=bridge
-    monkeypatch.setitem(sys.modules, 'win10_bridge_mcp.windows_native', native)
+    native = viewer_native
     class Process:
         def __init__(self, *, target, args): self.args=args; self.alive=False
         def start(self):

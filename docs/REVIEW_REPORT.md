@@ -1,6 +1,16 @@
 # Báo cáo bản duyệt TaskKit.vn Windows Computer Bridge MCP
 
-Ngày kiểm: 2026-10-14. Bản source candidate: **0.4.2.dev0**. Đây là bản reviewable trong môi trường Linux, chưa được xác nhận vận hành trên Windows thật/CAD/GPU. Chưa push, tạo PR/release, đăng diễn đàn, thay cấu hình Codex hoặc tác động máy Windows người dùng.
+Ngày kiểm: 2026-10-14. Bản source candidate: **0.4.2.dev0**. Đây là bản reviewable trong môi trường Linux, chưa được xác nhận vận hành trên Windows thật/CAD/GPU. Các phần baseline, thay đổi và kết quả bên dưới ghi lại snapshot trước upload GitHub; xem bổ sung ngay dưới đây cho trạng thái mới.
+
+## Bổ sung sau upload GitHub
+
+- Sau khi chủ repo cho phép upload, đã push nguyên ba commit review lên `review/safety-reliability-20261014`, HEAD snapshot đúng `92f47a7d87b56f9598c8509f33beaa3af6661a73`. `main` giữ nguyên `92cfa9b40c33e04f49ab01d7df5b947cd552a8f7`; không force push, merge, tạo PR/release hay đăng diễn đàn.
+- Linux Python **3.11.17** đã được kiểm thêm sau snapshot: **246 passed, 2 skipped**, stdio smoke 17 tools và dependency check PASS. Runtime CPython được cài bằng uv/Astral python-build-standalone trong workspace riêng; không thay máy Windows người dùng.
+- [CI lần upload đầu, run 38568461856](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/runs/38568461856): Ubuntu 3.11/3.13 thành công. Hai test preview-stop trên Windows thất bại vì fixture chỉ thay `sys.modules` trong khi package đã cache module native từ test ABI. Đã tái hiện cùng lỗi trên Linux bằng cached fake module; commit nối tiếp sửa fixture ở cả hai vị trí và chạy cả cached/uncached cases. Không sửa hoặc bỏ guard production để làm CI xanh.
+- Sau sửa fixture: full suite Linux trên Python 3.11.17/3.12.14/3.13.5 đều **250 passed, 2 skipped**, smoke 17 tools PASS; targeted preview-stop **14 passed**. Bốn cases mới kiểm cả trạng thái package đã cache và chưa cache module.
+- Kết quả CI tiếp theo được ghi trong báo cáo bàn giao và GitHub Actions của nhánh. Test Windows runner gồm ABI và backend giả lập; CI xanh vẫn không chứng minh desktop/COM/PrintWindow/BitBlt/SendInput/CAD/GPU chạy đúng. Checklist Windows manual vẫn cần chủ máy thực hiện.
+
+Bảng kết quả snapshot bên dưới được giữ làm bằng chứng lịch sử; dòng “candidate 3.11 chưa chạy”, số lượng tests và trạng thái “chưa push” không phải trạng thái sau bổ sung này.
 
 ## Phạm vi và baseline
 
