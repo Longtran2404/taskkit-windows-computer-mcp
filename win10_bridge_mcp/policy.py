@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import re
 import time
 import uuid
+from pathlib import PureWindowsPath
 
 DEFAULT_ALLOWED = ("notepad.exe",)
 VALID_BUTTONS = frozenset({"left", "right", "middle", "x1", "x2"})
@@ -15,6 +16,14 @@ MAX_DRAG_MS = 6000
 MAX_DRAG_STEPS = 160
 MAX_SCROLL_TICKS = 12
 MAX_CAPTURE_PIXELS = 12_000_000
+
+
+def require_local_windows_path(resolved: str, drive_type: int) -> None:
+    """Check canonical path shape and Win32 drive type (not a filesystem sandbox)."""
+    path = PureWindowsPath(resolved)
+    if (not path.is_absolute() or not re.fullmatch(r"[A-Za-z]:", path.drive) or
+            any(":" in part for part in path.parts[1:]) or drive_type not in {2, 3, 6}):
+        raise ValueError("Absolute local disk path required; UNC/device paths, mapped network drives and alternate streams are refused")
 
 
 @dataclass(frozen=True)
@@ -48,6 +57,7 @@ class CaptureTicket:
     rect: Rect
     created: float
     method: str
+    dpi: int
 
 
 class CaptureRegistry:
@@ -55,17 +65,17 @@ class CaptureRegistry:
         self.ttl = ttl
         self._tickets: dict[str, CaptureTicket] = {}
 
-    def issue(self, window_id: str, rect: Rect, method: str, now: float | None = None) -> CaptureTicket:
+    def issue(self, window_id: str, rect: Rect, method: str, now: float | None = None, *, dpi: int = 96) -> CaptureTicket:
         moment = time.monotonic() if now is None else now
         self._tickets = {k: v for k, v in self._tickets.items() if moment - v.created < self.ttl}
-        ticket = CaptureTicket(uuid.uuid4().hex, window_id, rect, moment, method)
+        ticket = CaptureTicket(uuid.uuid4().hex, window_id, rect, moment, method, dpi)
         self._tickets[ticket.token] = ticket
         if len(self._tickets) > 32:
             oldest = min(self._tickets.values(), key=lambda v: v.created).token
             self._tickets.pop(oldest, None)
         return ticket
 
-    def verify(self, token: str, window_id: str, rect: Rect, now: float | None = None) -> CaptureTicket:
+    def verify(self, token: str, window_id: str, rect: Rect, now: float | None = None, *, dpi: int = 96) -> CaptureTicket:
         moment = time.monotonic() if now is None else now
         ticket = self._tickets.get(token)
         if ticket is None:
@@ -73,7 +83,7 @@ class CaptureRegistry:
         if moment - ticket.created >= self.ttl:
             self._tickets.pop(token, None)
             raise ValueError("Screenshot expired. Capture the window again.")
-        if window_id != ticket.window_id or rect != ticket.rect:
+        if window_id != ticket.window_id or rect != ticket.rect or dpi != ticket.dpi:
             raise ValueError("Window identity or position changed since screenshot. Capture again.")
         return ticket
 

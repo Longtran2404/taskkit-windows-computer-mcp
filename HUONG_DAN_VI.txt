@@ -1,28 +1,69 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.1
-Được phát triển bởi TaskKit.vn - Minh Long Tran.
-Website: https://taskkit.vn
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP — BẢN DUYỆT 0.4.2.dev0
+Được phát triển bởi TaskKit.vn — Minh Long Tran. https://taskkit.vn
 
-Đã bổ sung: gõ Unicode tiếng Việt, thay nội dung có chủ đích, phím tắt/Enter/Tab,
-đọc ô/nút UI Automation, thao tác hộp thoại, liệt kê ổ đĩa và mở thư mục.
-Ảnh capture_window trả về MCP ImageContent để hiển thị trong chat Codex.
-Cửa sổ xem riêng Windows là tùy chọn, không tự mở.
+Bản này được sửa và kiểm trong Linux đám mây; fake-adapter và worker tests
+không chứng minh Windows thật, CAD hay viewport GPU hoạt động đúng.
+Xem docs/REVIEW_REPORT.md và docs/WINDOWS_MANUAL_CHECKLIST.md.
+Chưa push, tạo PR, phát hành hoặc đăng diễn đàn.
 
-Cho phép theo phiên: chủ máy cấu hình mouse_control_mode = foreground_session.
-Không có hộp Yes từng lần. Esc/F12 dừng cả phiên; Codex không tự bật lại.
-Khởi động phiên mới chỉ theo yêu cầu mới của chủ máy.
-Mặc định bộ cài vẫn giữ disabled và bảo toàn cấu hình cũ.
-
-CÀI: Giải nén, chạy scripts/install_windows.ps1 (Python 3.11 có Tkinter).
-Đăng ký Codex dùng -InstallCodex chỉ khi chủ máy yêu cầu.
+CÀI TRÊN WINDOWS DO CHỦ MÁY QUẢN LÝ
+Cần desktop tương tác Windows 10/11 và Python 3.11–3.13 có Tkinter, py.exe.
+Từ thư mục giải nén: .\scripts\install_windows.ps1
+Chọn bản Python đã cài: .\scripts\install_windows.ps1 -PythonVersion 3.13
+Chỉ thêm -InstallCodex nếu chủ máy muốn thay đăng ký Codex.
+Bộ cài không elevation, không thay execution policy và giữ cấu hình cũ.
+PowerShell installer chưa chạy được trong môi trường Linux này.
 Cấu hình: %USERPROFILE%\Win10_ComputerBridge\bridge_config.json
-Cho Explorer hoạt động cần thêm explorer.exe vào allow_processes.
+Mở Notepad trước. Mặc định chỉ notepad.exe và mouse_control_mode=disabled.
 
-LƯU CỬA SỔ GỐC: dùng ctrl+s, kiểm tra Save As, điền File name bằng UI Automation,
-nhấn Save. Xác nhận cả tên cửa sổ không còn * lẫn nội dung tệp trên đĩa.
-save_notepad_text lưu bản sao và kiểm tra tệp; không thay thế thao tác lưu cửa sổ gốc.
+QUYỀN VÀ DỪNG
+- disabled: chỉ chụp/đọc; không input hoặc mutation UIA/file.
+- foreground_confirm_each: chủ máy bấm Yes cục bộ cho từng thao tác hữu hạn.
+- foreground_session: chủ máy bấm Yes cục bộ cho phiên tối đa 5 phút.
+  Hết hạn cần đồng ý mới; cấu hình hoặc tham số MCP không tự cấp quyền.
+Mọi mutation mặc định dry_run=true. Status/chụp/đọc không tự arm.
+Esc/F12, đóng preview hoặc emergency_release dừng vĩnh viễn process,
+kể cả chụp/UIA/input. Mở lại preview không xóa stop; muốn tiếp tục cần
+khởi động process mới cục bộ và đồng ý mới. Polling có thể bỏ lỡ xung phím
+quá ngắn; giữ phím dừng rõ ràng hoặc đóng preview/process.
 
-ĐÃ KIỂM TRA: 16 unit tests; 14 công cụ qua MCP stdio; nhấp chuột, gõ/thay chữ
-Việt, phím tắt; lưu chính Notepad gốc thành iloveyou.txt trên Desktop và vẫn mở;
-mở thư mục Explorer; tín hiệu Esc của Windows dừng phiên, chặn gõ/chụp tiếp.
-CHƯA KIỂM TRA: toàn bộ thao tác CAD/3D và viewport GPU, bộ cài Python 3.11.
-Bản này đã sửa mã và kiểm thử cục bộ; chưa cài đè cấu hình Codex/Revit, được công bố thành repository riêng: https://github.com/Longtran2404/taskkit-windows-computer-mcp
+CÁCH DÙNG
+1. bridge_status, inspect_windows; chọn đúng window_id mới.
+2. capture_window; xem kỹ ảnh rồi chọn tọa độ theo pixel vật lý cửa sổ ngoài,
+   bao gồm viền. Ảnh MCP được chuyển tới AI client và có thể có dữ liệu riêng.
+3. Dùng capture_id để dry-run thao tác; muốn gửi input thực thì cấu hình
+   foreground mode cục bộ, chủ máy đồng ý và đặt dry_run=false.
+4. Chụp lại để xác minh kết quả. Token dùng một lần, hết hạn sau 90 giây,
+   thay đổi identity/kích thước/vị trí/DPI cần chụp lại.
+
+CHUỘT/PHÍM
+Move, click/double click, drag/hold hữu hạn; cuộn ngang/dọc; trái/phải/giữa/X;
+Ctrl/Shift/Alt/Space. Gõ Unicode tiếng Việt/emoji, replace_all có chủ đích
+qua Ctrl+A ở editor đang focus. Input dùng chuột/focus thật; không chạy nền
+song song với người dùng trên cùng desktop. Để làm song song cần app API
+hoặc desktop/VM Windows riêng. Không chạm chuột/phím khi đang thao tác.
+Guard kiểm con trỏ thực, cửa sổ/focus/geometry/DPI mỗi bước; cleanup chỉ gửi
+release cho input transaction đã gửi down thành công. Không thể phân biệt
+chủ máy nhấn chính phím/nút đang do transaction giữ; đây là giới hạn còn lại.
+Emergency release riêng gửi các release best-effort rộng, có thể ảnh hưởng
+phím/nút người dùng đang giữ.
+
+CHỤP / UIA / LƯU
+PrintWindow và UIA chạy trong worker process riêng, deadline 3 giây; worker
+trễ/treo/crash bị hủy, không nhận kết quả trễ/token. COM đã gửi mutation tới
+app có thể vẫn hoàn tất sau khi worker bị hủy: kiểm UI/file trước khi thử lại.
+Ảnh không đồng màu không chứng minh GPU viewport đúng/cập nhật/đầy đủ.
+Không tự chụp toàn desktop; chưa triển khai Windows Graphics Capture.
+UIA bỏ ô password; Notepad mới có thể không có classic automation_id=15.
+save_notepad_text lưu BẢN SAO buffer bằng UTF-8, giữ CRLF/LF, chấp nhận BOM,
+tạo file exclusive; không overwrite file khác. Không đánh dấu cửa sổ gốc đã
+Save. Lưu cửa sổ gốc bằng Save As cần kiểm cả trạng thái/title và file.
+UNC, device path, ADS, mapped network drive bị từ chối; canonical local path
+được kiểm nhưng không phải sandbox chống mọi race filesystem/reparse.
+
+LỖI VÀ KIỂM TRA
+Lỗi runtime MCP có isError=true và structuredContent.error.code/message;
+partial effects có thể đã xảy ra. Xem lại UI/file, không retry mù.
+Preview tùy chọn: MO_MAN_HINH.cmd hoặc scripts/open_preview.ps1, ảnh giữ cục bộ.
+Kiểm tự động: python -m pytest -q và python scripts/smoke_test.py.
+Đọc báo cáo để phân biệt kiểm thật Linux, giả lập và chưa chạy Windows.

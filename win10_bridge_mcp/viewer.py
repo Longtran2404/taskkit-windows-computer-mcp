@@ -1,10 +1,11 @@
-"""Local live window preview. Closing it latches a stop until reopened."""
+"""Local preview. Closing permanently stops this process; opening never rearms."""
 from __future__ import annotations
 
 from io import BytesIO
 import queue
 import threading
 import multiprocessing
+import time
 
 STOP = threading.Event()
 _lock = threading.Lock()
@@ -25,7 +26,7 @@ def stopped():
 
 def ensure_viewer(window_id, allowed):
     if stopped():
-        raise InterruptedError("Preview was closed; reopen with show_live_view to resume")
+        raise InterruptedError("Preview stopped; restart bridge locally to resume")
     if _process is not None and _process.is_alive():
         if _window_id != window_id:
             raise RuntimeError("Preview targets another window; close and reopen it for this target")
@@ -36,27 +37,52 @@ def ensure_viewer(window_id, allowed):
 def show_viewer(window_id, allowed):
     global _process, _closed, _ready, _window_id
     with _lock:
+        if stopped():
+            raise InterruptedError("Preview stop is permanent; restart bridge locally")
+        from . import windows_native as native
+        native.enable_session_stop()
+        native._stop_if_needed()
         if _process is not None and _process.is_alive():
             raise RuntimeError("Close the current preview before opening another")
-        STOP.clear()
         ctx = multiprocessing.get_context("spawn")
         _closed = ctx.Event()
         _ready = ctx.Event()
+        native._stop_if_needed()  # A simultaneous stop must close the NEW event.
         errors = ctx.Queue()
-        _process = ctx.Process(target=_run, args=(window_id, allowed, _closed, _ready, errors), daemon=True)
-        _process.start()
+        # A non-daemon preview may spawn disposable PrintWindow workers.
+        candidate = ctx.Process(target=_run, args=(window_id, allowed, _closed, _ready, errors))
+        candidate.start()
+        # The stop watcher must not mistake a not-yet-started process for a dead
+        # preview while Windows spawn is still starting it.
+        _process = candidate
         _window_id = window_id
-        if not _ready.wait(5):
+        deadline = time.monotonic() + 5
+        try:
+            while not _ready.wait(0.02):
+                native._stop_if_needed()
+                if time.monotonic() >= deadline:
+                    raise TimeoutError("Preview startup timed out")
+            if _closed.is_set():
+                try:
+                    startup_error = errors.get(timeout=0.1)
+                except queue.Empty:
+                    raise InterruptedError("Preview closed during startup")
+                raise RuntimeError("Preview startup failed: " + startup_error)
+            native._stop_if_needed()
+            if stopped():
+                raise InterruptedError("Preview stopped during startup")
+        except Exception:
             close_viewer()
-            raise RuntimeError("Preview startup timed out")
-        if _closed.is_set():
-            _process.join(1)
-            raise RuntimeError(errors.get(timeout=1) if not errors.empty() else "Preview closed during startup")
+            _process.terminate()
+            _process.join(0.25)
+            raise
     return {"visible": True, "window_id": window_id, "close_key": "Esc",
             "note": "Local live preview only; physical mouse uses the target window"}
 
 
 def _run(window_id, allowed, closed, ready, errors):
+    global _closed
+    _closed = closed
     root = None
     try:
         import tkinter as tk
@@ -93,7 +119,8 @@ def _run(window_id, allowed, closed, ready, errors):
                 closed.wait(0.25)
 
         def tick():
-            if native.U.GetAsyncKeyState(0x1B) & 0x8000:
+            if (native.U.GetAsyncKeyState(0x1B) & 0x8000 or
+                    native.U.GetAsyncKeyState(0x7B) & 0x8000):
                 closed.set()
             if closed.is_set():
                 root.destroy()

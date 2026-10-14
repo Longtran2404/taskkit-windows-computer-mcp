@@ -1,5 +1,5 @@
 {
   "allow_processes": ["notepad.exe"],
   "mouse_control_mode": "disabled",
-  "notes": "Physical mouse requires local permission for each action. Add Revit.exe or acad.exe only after isolated testing."
+  "notes": "Keep disabled initially. Foreground modes require local native consent; session consent expires after 5 minutes. Esc/F12/preview close permanently stops this process. Validate apps in an isolated Windows desktop before adding them."
 }

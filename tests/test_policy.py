@@ -40,3 +40,19 @@ def test_mouse_gestures_and_rejections():
     with pytest.raises(ValueError): validate_mouse('scroll','left',300,12,100,'vertical','')
     with pytest.raises(ValueError): parse_modifiers('alt+alt')
     assert drag_points((0,0),(100,50),10)[-1] == (100,50)
+
+
+@pytest.mark.parametrize('path,drive_type', [
+    ('C:/Temp/ok.txt',3), ('D:/Local/file.txt',2), ('R:/buffer.txt',6)])
+def test_local_windows_path_policy(path, drive_type):
+    from win10_bridge_mcp.policy import require_local_windows_path
+    require_local_windows_path(path, drive_type)
+
+
+@pytest.mark.parametrize('path,drive_type', [
+    ('C:/Temp/base:stream.txt',3), ('Z:/remote/file.txt',4),
+    ('//server/share/file.txt',4), ('//?/C:/file.txt',3),
+    ('C:relative.txt',3), ('C:/missing.txt',1), ('C:/unknown.txt',0)])
+def test_refuses_network_device_relative_ads(path, drive_type):
+    from win10_bridge_mcp.policy import require_local_windows_path
+    with pytest.raises(ValueError): require_local_windows_path(path,drive_type)

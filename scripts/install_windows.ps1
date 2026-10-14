@@ -1,7 +1,10 @@
 # Owner-run, non-admin installer for Win10 Computer Bridge MCP prototype.
 # Changes only user's LocalAppData and home folder; does not patch OpenAI.
 [CmdletBinding()]
-param([switch]$InstallCodex)
+param(
+    [switch]$InstallCodex,
+    [ValidateSet('3.11','3.12','3.13')][string]$PythonVersion = '3.11'
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -9,16 +12,19 @@ $install = Join-Path $env:LOCALAPPDATA 'Win10ComputerBridgeMCP'
 $cfgDir = Join-Path $HOME 'Win10_ComputerBridge'
 $cfg = Join-Path $cfgDir 'bridge_config.json'
 $py = Get-Command py.exe -ErrorAction SilentlyContinue
-if (-not $py) { throw 'Install Python 3.11 from python.org and rerun (py.exe launcher missing).' }
-& py.exe -3.11 --version
-if ($LASTEXITCODE -ne 0) { throw 'Python 3.11 is required for this prototype.' }
+if (-not $py) { throw 'Install Python with Tkinter and py.exe launcher from python.org, then rerun.' }
+& py.exe "-$PythonVersion" --version
+if ($LASTEXITCODE -ne 0) { throw "Python $PythonVersion is not installed; select -PythonVersion 3.11, 3.12 or 3.13." }
 New-Item -ItemType Directory -Path $install,$cfgDir -Force | Out-Null
 $src = Join-Path $install 'source'
 New-Item -ItemType Directory -Path $src -Force | Out-Null
 Copy-Item -Path (Join-Path $root 'win10_bridge_mcp') -Destination $src -Recurse -Force
 Copy-Item -Path (Join-Path $root 'pyproject.toml') -Destination $src -Force
+foreach ($document in @('LICENSE','NOTICE','README.md')) {
+    Copy-Item -LiteralPath (Join-Path $root $document) -Destination $src -Force
+}
 $venv = Join-Path $install 'venv'
-& py.exe -3.11 -m venv $venv
+& py.exe "-$PythonVersion" -m venv $venv
 if ($LASTEXITCODE -ne 0) { throw 'Python venv creation failed' }
 $python = Join-Path $venv 'Scripts\python.exe'
 & $python -m pip install $src

@@ -15,7 +15,7 @@ import time
 import threading
 
 from PIL import Image as PILImage
-from .policy import Rect, drag_points, MAX_CAPTURE_PIXELS
+from .policy import Rect, MAX_CAPTURE_PIXELS
 
 if sys.platform != "win32":
     raise RuntimeError("Windows 10/11 interactive desktop required")
@@ -24,15 +24,37 @@ U = ct.WinDLL("user32", use_last_error=True)
 K = ct.WinDLL("kernel32", use_last_error=True)
 G = ct.WinDLL("gdi32", use_last_error=True)
 
-# Set process-wide DPI awareness before accessing any GUI coordinates.
-try:
-    U.SetProcessDpiAwarenessContext.argtypes = (ct.c_void_p,)
-    U.SetProcessDpiAwarenessContext.restype = wt.BOOL
-    if not U.SetProcessDpiAwarenessContext(ct.c_void_p(-4)):
-        ct.windll.shcore.SetProcessDpiAwareness(2)
-except (AttributeError, OSError):
-    try: U.SetProcessDPIAware()
-    except Exception: pass
+# Refuse coordinate operations unless the active thread is per-monitor aware.
+# A pre-existing incompatible host awareness must not silently virtualize pixels.
+U.SetProcessDpiAwarenessContext.argtypes = (ct.c_void_p,)
+U.SetProcessDpiAwarenessContext.restype = wt.BOOL
+U.SetProcessDpiAwarenessContext(ct.c_void_p(-4))
+U.GetThreadDpiAwarenessContext.argtypes = ()
+U.GetThreadDpiAwarenessContext.restype = ct.c_void_p
+U.GetAwarenessFromDpiAwarenessContext.argtypes = (ct.c_void_p,)
+U.GetAwarenessFromDpiAwarenessContext.restype = ct.c_int
+U.GetDpiForWindow.argtypes = (wt.HWND,)
+U.GetDpiForWindow.restype = wt.UINT
+K.GetDriveTypeW.argtypes = (wt.LPCWSTR,)
+K.GetDriveTypeW.restype = wt.UINT
+
+
+def _require_physical_mapping():
+    if U.GetAwarenessFromDpiAwarenessContext(U.GetThreadDpiAwarenessContext()) != 2:
+        raise RuntimeError("Per-monitor DPI awareness unavailable; refusing coordinate mapping")
+
+
+def local_path(path: Path, *, directory=False) -> Path:
+    from .policy import require_local_windows_path
+    _stop_if_needed()
+    if not path.is_absolute():
+        raise ValueError("Absolute local path required")
+    require_local_windows_path(str(path), 3)  # Shape check before filesystem access.
+    require_local_windows_path(str(path), K.GetDriveTypeW(path.anchor))
+    resolved = path.resolve(strict=True) if directory or path.exists() else path.parent.resolve(strict=True) / path.name
+    require_local_windows_path(str(resolved), K.GetDriveTypeW(resolved.anchor))
+    _stop_if_needed()
+    return resolved
 
 class RECT(ct.Structure):
     _fields_ = [("left", wt.LONG), ("top", wt.LONG), ("right", wt.LONG), ("bottom", wt.LONG)]
@@ -116,6 +138,10 @@ G.DeleteObject.restype = wt.BOOL
 G.SelectObject.argtypes = (wt.HDC, wt.HGDIOBJ)
 G.SelectObject.restype = wt.HGDIOBJ
 
+K.GetProcessTimes.argtypes = (wt.HANDLE, ct.POINTER(wt.FILETIME), ct.POINTER(wt.FILETIME),
+                              ct.POINTER(wt.FILETIME), ct.POINTER(wt.FILETIME))
+K.GetProcessTimes.restype = wt.BOOL
+
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 INPUT_MOUSE = 0
 INPUT_KEYBOARD = 1
@@ -133,24 +159,31 @@ BUTTON_FLAGS = {
     "x1": (MOUSE_X_DOWN, MOUSE_X_UP, 1),
     "x2": (MOUSE_X_DOWN, MOUSE_X_UP, 2),
 }
-KEYS = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "space": 0x20}
 SESSION_STOP = threading.Event()
 _session_watcher = None
 _session_lock = threading.Lock()
 
 
+def latch_stop():
+    """One-way parent stop also closes the shared preview event and its workers."""
+    SESSION_STOP.set()
+    from .viewer import close_viewer
+    close_viewer()
+
+
 def enable_session_stop() -> None:
-    """Owner-armed session, without per-action dialogs. Esc permanently latches stop."""
+    """Start a stop watcher in any mode; this never grants input authorization."""
     global _session_watcher
     with _session_lock:
         if _session_watcher is not None:
             return  # Never clear a stopped session remotely.
         if U.GetAsyncKeyState(0x1B) & 0x8000 or U.GetAsyncKeyState(0x7B) & 0x8000:
-            SESSION_STOP.set()
+            latch_stop()
         def watch():
             while not SESSION_STOP.is_set():
-                if U.GetAsyncKeyState(0x1B) & 0x8001 or U.GetAsyncKeyState(0x7B) & 0x8001:
-                    SESSION_STOP.set()
+                from .viewer import stopped
+                if stopped() or U.GetAsyncKeyState(0x1B) & 0x8001 or U.GetAsyncKeyState(0x7B) & 0x8001:
+                    latch_stop()
                     return
                 SESSION_STOP.wait(0.02)
         _session_watcher = threading.Thread(target=watch, daemon=True)
@@ -164,65 +197,131 @@ class Window:
     exe: str
     title: str
     rect: Rect
+    created: int
+    dpi: int
 
     @property
     def id(self) -> str:
-        return f"{self.pid}:{self.hwnd:x}"
+        return f"{self.pid}:{self.hwnd:x}:{self.created:x}"
 
 
-def executable(pid: int) -> str | None:
+def process_identity(pid: int) -> tuple[str, int] | None:
     handle = K.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return None
     try:
         buf = ct.create_unicode_buffer(32768)
         n = wt.DWORD(len(buf))
-        if K.QueryFullProcessImageNameW(handle, 0, buf, ct.byref(n)):
-            return Path(buf.value).name.lower()
+        created, exited, kernel, user = (wt.FILETIME() for _ in range(4))
+        if (K.QueryFullProcessImageNameW(handle, 0, buf, ct.byref(n)) and
+                K.GetProcessTimes(handle, ct.byref(created), ct.byref(exited), ct.byref(kernel), ct.byref(user))):
+            return Path(buf.value).name.lower(), (created.dwHighDateTime << 32) | created.dwLowDateTime
     finally:
         K.CloseHandle(handle)
     return None
 
 
+def _read_window(hwnd: int, allowed: frozenset[str]) -> Window:
+    _require_physical_mapping()
+    if not U.IsWindowVisible(hwnd) or U.IsIconic(hwnd):
+        raise ValueError("Window missing or minimized")
+    pid = wt.DWORD()
+    U.GetWindowThreadProcessId(hwnd, ct.byref(pid))
+    identity = process_identity(pid.value)
+    if not identity or identity[0] not in allowed:
+        raise PermissionError("Process identity missing or not allowed")
+    rect = RECT()
+    if not U.GetWindowRect(hwnd, ct.byref(rect)):
+        raise OSError("GetWindowRect failed")
+    r = Rect(rect.left, rect.top, rect.right, rect.bottom)
+    dpi = int(U.GetDpiForWindow(hwnd))
+    if r.width < 100 or r.height < 80 or r.width * r.height > MAX_CAPTURE_PIXELS or not dpi:
+        raise ValueError("Unsupported window geometry or DPI")
+    n = min(U.GetWindowTextLengthW(hwnd), 1000)
+    buf = ct.create_unicode_buffer(n + 2)
+    U.GetWindowTextW(hwnd, buf, len(buf))
+    return Window(hwnd, pid.value, identity[0], buf.value, r, identity[1], dpi)
+
+
 def enumerate_windows(allowed: frozenset[str]) -> list[Window]:
-    found: list[Window] = []
-
-    def check(hwnd: int, _) -> bool:
-        if not U.IsWindowVisible(hwnd) or U.IsIconic(hwnd):
-            return True
-        pid = wt.DWORD()
-        U.GetWindowThreadProcessId(hwnd, ct.byref(pid))
-        exe = executable(pid.value)
-        if exe not in allowed:
-            return True
-        rect = RECT()
-        if not U.GetWindowRect(hwnd, ct.byref(rect)):
-            return True
-        r = Rect(rect.left, rect.top, rect.right, rect.bottom)
-        if r.width < 100 or r.height < 80 or r.width * r.height > MAX_CAPTURE_PIXELS:
-            return True
-        n = min(U.GetWindowTextLengthW(hwnd), 1000)
-        buf = ct.create_unicode_buffer(n + 2)
-        U.GetWindowTextW(hwnd, buf, len(buf))
-        if not buf.value:
-            return True
-        found.append(Window(hwnd, pid.value, exe, buf.value, r))
+    _stop_if_needed()
+    _require_physical_mapping()
+    found = []
+    callback_errors = []
+    def check(hwnd, _):
+        try:
+            _stop_if_needed()
+            win = _read_window(hwnd, allowed)
+            if win.title:
+                found.append(win)
+        except (ValueError, PermissionError, OSError):
+            pass
+        except Exception as exc:
+            # Never let ctypes silently swallow stop/DPI errors in its callback.
+            callback_errors.append(exc)
+            return False
         return True
-
-    cb = WNDENUMPROC(check)
-    if not U.EnumWindows(cb, 0):
-        raise OSError(f"EnumWindows failed: {ct.get_last_error()}")
+    success = U.EnumWindows(WNDENUMPROC(check), 0)
+    if callback_errors:
+        raise callback_errors[0]
+    if not success:
+        raise OSError("EnumWindows failed")
+    _stop_if_needed()
     return found
 
 
 def get_window(window_id: str, allowed: frozenset[str]) -> Window:
-    matches = [w for w in enumerate_windows(allowed) if w.id == window_id]
-    if len(matches) != 1:
-        raise ValueError("Window missing, minimized, or not allowed. Inspect windows again.")
-    return matches[0]
+    _stop_if_needed()
+    try:
+        parts = window_id.split(":")
+        if len(parts) != 3:
+            raise ValueError
+        win = _read_window(int(parts[1], 16), allowed)
+    except (ValueError, OSError) as exc:
+        raise ValueError("Invalid/missing window; inspect windows again") from exc
+    if win.id != window_id:
+        raise ValueError("Window process identity changed; inspect windows again")
+    _stop_if_needed()
+    return win
 
 
-def capture_window(win: Window) -> tuple[bytes, str, bool]:
+def check_window(win: Window, *, foreground=False):
+    _stop_if_needed()
+    current = get_window(win.id, frozenset({win.exe}))
+    if current.rect != win.rect or current.dpi != win.dpi:
+        raise RuntimeError("Window geometry/DPI changed; capture again")
+    if foreground and U.GetForegroundWindow() != win.hwnd:
+        raise RuntimeError("Target lost foreground focus; input aborted")
+    _stop_if_needed()
+    return current
+
+
+def _native_job(payload, cancel):
+    global _worker_cancel, _worker_deadline
+    _worker_cancel = cancel
+    operation, win, args, _worker_deadline = payload
+    check_window(win, foreground=operation not in {"capture", "inspect", "value_read"})
+    if operation == "capture":
+        result = _capture_direct(win)
+    else:
+        from . import ui_access
+        guard = lambda: check_window(win, foreground=operation not in {"inspect", "value_read"})
+        result = ui_access._dispatch(operation, win.hwnd, args, guard)
+    check_window(win, foreground=operation not in {"capture", "inspect", "value_read"})
+    return result
+
+
+def capture_window(win: Window):
+    from .bounded_worker import run
+    try:
+        return run(_native_job, ("capture", win, (), None), timeout=3.0,
+                   guard=lambda: check_window(win), on_unreaped=latch_stop)
+    except InterruptedError:
+        latch_stop()
+        raise
+
+
+def _capture_direct(win: Window) -> tuple[bytes, str, bool]:
     """Capture via PrintWindow; never fallback to occlusion-prone desktop pixels.
 
     Returns PNG bytes, capture method, suspicious/mostly uniform flag.
@@ -252,6 +351,7 @@ def capture_window(win: Window) -> tuple[bytes, str, bool]:
         render_method = ""
         for flag, label in [(2, "PrintWindow full"), (0, "PrintWindow basic")]:
             ct.memset(pixelptr, 0, win.rect.width * win.rect.height * 4)
+            check_window(win)
             if U.PrintWindow(win.hwnd, memdc, flag):
                 render_method = label
                 break
@@ -266,6 +366,7 @@ def capture_window(win: Window) -> tuple[bytes, str, bool]:
         possibly_blank = all(hi - lo < 8 for lo, hi in extrema)
         out = BytesIO()
         rgb.save(out, format="PNG", optimize=True)
+        check_window(win)
         return out.getvalue(), render_method, possibly_blank
     finally:
         if prev:
@@ -288,10 +389,6 @@ def _mouse(flags: int, data: int = 0) -> None:
     _send(inp)
 
 
-def _key(name: str, is_down: bool) -> None:
-    _virtual_key(KEYS[name], is_down)
-
-
 def _virtual_key(vk: int, is_down: bool) -> None:
     inp = INPUT(type=INPUT_KEYBOARD)
     inp.payload.ki.wVk = vk
@@ -305,7 +402,12 @@ def _position(x: int, y: int) -> None:
 
 
 def _verify_hit(win: Window, x: int, y: int) -> None:
-    hit = U.WindowFromPoint(POINT(x, y))
+    point = POINT()
+    if not U.GetCursorPos(ct.byref(point)):
+        raise OSError("GetCursorPos failed before hit test")
+    if (point.x, point.y) != (x, y):
+        raise InterruptedError("Actual cursor differs from intended point; refusing input")
+    hit = U.WindowFromPoint(point)
     if not hit or U.GetAncestor(hit, 2) != win.hwnd:
         raise RuntimeError("Point is covered by another window; refusing input")
 
@@ -318,150 +420,125 @@ KEY_CODES = {"ctrl": 0x11, "shift": 0x10, "alt": 0x12, "enter": 0x0D,
              **{str(c): ord(str(c)) for c in range(10)}}
 
 
-def apply_keys(win: Window, keys: tuple[str, ...]) -> None:
-    _stop_if_needed()
-    _activate(win)
-    pressed = []
-    try:
-        for key in keys:
-            _stop_if_needed()
-            if U.GetForegroundWindow() != win.hwnd:
-                raise RuntimeError("Target lost focus during keyboard action")
-            _virtual_key(KEY_CODES[key], True)
-            pressed.append(KEY_CODES[key])
-        _interruptible_wait(0.06)
-    finally:
-        for vk in reversed(pressed):
-            try: _virtual_key(vk, False)
-            except Exception: pass
-        _release_all()
+_worker_cancel = None
+_worker_deadline = None
 
 
 def _stop_if_needed() -> None:
     from .viewer import stopped
-    if U.GetAsyncKeyState(0x1B) & 0x8001 or U.GetAsyncKeyState(0x7B) & 0x8001:
-        SESSION_STOP.set()
-    if SESSION_STOP.is_set() or stopped():
-        raise InterruptedError("Esc/F12 emergency abort or preview closed")
+    if U.GetAsyncKeyState(0x1B) & 0x8001 or U.GetAsyncKeyState(0x7B) & 0x8001 or stopped():
+        latch_stop()
+    if SESSION_STOP.is_set() or (_worker_cancel is not None and _worker_cancel.is_set()):
+        raise InterruptedError("Permanent Esc/F12/preview stop; restart locally to resume")
+    if _worker_deadline is not None and time.monotonic() >= _worker_deadline:
+        raise PermissionError("Local consent expired during UIA operation")
 
 
-def _interruptible_wait(seconds: float) -> None:
+def _interruptible_wait(seconds, win=None):
     end = time.monotonic() + seconds
-    while time.monotonic() < end:
+    while True:
         _stop_if_needed()
-        time.sleep(min(0.02, max(0, end - time.monotonic())))
+        if win is not None:
+            check_window(win)
+        remaining = end - time.monotonic()
+        if remaining <= 0:
+            return
+        SESSION_STOP.wait(min(0.01, remaining))
 
 
-def apply_text(win: Window, text: str, replace_all: bool = False) -> None:
-    """Bounded Unicode input; stop/focus checked before every UTF-16 unit."""
-    _stop_if_needed()
-    _activate(win)
-    try:
-        if replace_all:
-            _stop_if_needed()
-            _key("ctrl", True)
-            _virtual_key(0x41, True)
-            _virtual_key(0x41, False)
-            _key("ctrl", False)
-            _interruptible_wait(0.04)
-        encoded = text.encode("utf-16-le")
-        for offset in range(0, len(encoded), 2):
-            _stop_if_needed()
-            if U.GetForegroundWindow() != win.hwnd:
-                raise RuntimeError("Target lost focus during typing")
-            unit = int.from_bytes(encoded[offset:offset + 2], "little")
-            inp = INPUT(type=INPUT_KEYBOARD)
-            inp.payload.ki.wScan = unit
-            inp.payload.ki.dwFlags = KEYEVENTF_UNICODE
-            _send(inp)
-            inp.payload.ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP
-            _send(inp)
-    finally:
-        try:
-            if replace_all:
-                _virtual_key(0x41, False)
-        finally:
-            _release_all()
-
-
-def _release_all() -> None:
-    """Best effort to avoid stuck drag and modifiers, even after exceptions."""
-    for b in ("left", "right", "middle", "x1", "x2"):
-        try: _mouse(BUTTON_FLAGS[b][1], BUTTON_FLAGS[b][2])
-        except Exception: pass
-    for mod in KEYS:
-        try: _key(mod, False)
-        except Exception: pass
-
-
-def release_all() -> None:
-    _release_all()
-
-
-def _activate(win: Window) -> None:
+def _activate(win):
+    check_window(win)
     if U.GetForegroundWindow() != win.hwnd:
         U.SetForegroundWindow(win.hwnd)
-    _interruptible_wait(0.10)
-    if U.GetForegroundWindow() != win.hwnd:
-        from . import ui_access
-        ui_access.focus_window(win.hwnd)
-        _interruptible_wait(0.10)
-    if U.GetForegroundWindow() != win.hwnd:
-        raise RuntimeError("Foreground changed: refuse mouse action")
+        _interruptible_wait(0.10, win)
+    check_window(win, foreground=True)
 
 
-def apply_mouse(win: Window, action: str, button: str, x: int, y: int,
-                end_x: int, end_y: int, duration_ms: int, steps: int,
-                wheel_ticks: int, wheel_axis: str, modifiers: tuple[str, ...]) -> None:
-    """One finite operation; modifier keys and all buttons are released in finally.
+class NativeAdapter:
+    key_codes = KEY_CODES
 
-    Does NOT run in the background on same interactive desktop. Win32 global input.
-    """
-    sx, sy = win.rect.absolute(x, y)
-    ex, ey = win.rect.absolute(end_x, end_y)
-    down, up, mouse_data = BUTTON_FLAGS[button]
-    _stop_if_needed()
-    _activate(win)
-    try:
-        _stop_if_needed()
-        for m in modifiers:
-            _key(m, True)
-        _position(sx, sy)
-        _verify_hit(win, sx, sy)
-        if action == "move":
-            return
-        if action in ("click", "double_click"):
-            count = 2 if action == "double_click" else 1
-            for _ in range(count):
-                _stop_if_needed()
-                _mouse(down, mouse_data)
-                time.sleep(0.04)
-                _mouse(up, mouse_data)
-                if count == 2:
-                    time.sleep(0.06)
-        elif action in ("drag", "hold"):
-            _mouse(down, mouse_data)
-            if action == "drag":
-                points = drag_points((sx, sy), (ex, ey), steps)
-                sleep_s = duration_ms / 1000 / max(1, len(points) - 1)
-                for px, py in points[1:]:
-                    _stop_if_needed()
-                    # Check focus for longer CAD drags, do not drag other windows.
-                    if U.GetForegroundWindow() != win.hwnd:
-                        raise RuntimeError("Target lost focus during drag")
-                    _position(px, py)
-                    _verify_hit(win, px, py)
-                    _interruptible_wait(sleep_s)
-            else:
-                endtime = time.monotonic() + duration_ms / 1000
-                while time.monotonic() < endtime:
-                    _stop_if_needed()
-                    time.sleep(0.04)
-            _mouse(up, mouse_data)
-        elif action == "scroll":
-            flag = MOUSE_WHEEL if wheel_axis == "vertical" else MOUSE_HWHEEL
-            _mouse(flag, wheel_ticks * 120)
+    def __init__(self, guard=lambda: None):
+        self.authorization_guard = guard
+
+    def check(self, win, *, foreground=True):
+        self.authorization_guard()
+        check_window(win, foreground=foreground)
+
+    def activate(self, win):
+        _activate(win)
+
+    def cursor(self):
+        point = POINT()
+        if not U.GetCursorPos(ct.byref(point)):
+            raise OSError("GetCursorPos failed")
+        return point.x, point.y
+
+    def held_inputs(self):
+        # Include both sides of modifiers and system keys; do not alter user input.
+        # Reserved stop keys belong to the stop watcher; do not consume their
+        # recent-press bits while scanning ordinary held input.
+        return {vk for vk in range(1, 256) if vk not in {0x1B, 0x7B}
+                and U.GetAsyncKeyState(vk) & 0x8000}
+
+    def code(self, kind, value):
+        if kind == "button":
+            return {{"left": 1, "right": 2, "middle": 4, "x1": 5, "x2": 6}[value]}
+        if kind == "unicode":
+            return {0xE7}
+        return {0x11: {0x11, 0xA2, 0xA3}, 0x10: {0x10, 0xA0, 0xA1},
+                0x12: {0x12, 0xA4, 0xA5}}.get(value, {value})
+
+    def emit(self, kind, value, down):
+        if kind == "button":
+            flags = BUTTON_FLAGS[value]
+            _mouse(flags[0 if down else 1], flags[2])
+        elif kind == "key":
+            _virtual_key(value, down)
         else:
-            raise ValueError("Unexpected action")
-    finally:
-        _release_all()
+            inp = INPUT(type=INPUT_KEYBOARD)
+            inp.payload.ki.wScan = value
+            inp.payload.ki.dwFlags = KEYEVENTF_UNICODE | (0 if down else KEYEVENTF_KEYUP)
+            _send(inp)
+
+    def position(self, x, y):
+        _position(x, y)
+
+    def verify_hit(self, win, x, y):
+        _verify_hit(win, x, y)
+
+    def wait(self, seconds):
+        SESSION_STOP.wait(seconds)
+
+    def wheel(self, axis, amount):
+        _mouse(MOUSE_WHEEL if axis == "vertical" else MOUSE_HWHEEL, amount)
+
+
+def apply_keys(win, keys, *, guard=lambda: None):
+    from .input_transaction import keys as perform
+    perform(NativeAdapter(guard), win, keys)
+
+
+def apply_text(win, text, replace_all=False, *, guard=lambda: None):
+    from .input_transaction import text as perform
+    perform(NativeAdapter(guard), win, text, replace_all)
+
+
+def apply_mouse(win, *args, guard=lambda: None):
+    from .input_transaction import mouse as perform
+    perform(NativeAdapter(guard), win, *args)
+
+
+def release_all():
+    """Explicit emergency only: broad best-effort ups may affect owner-held input."""
+    failures = []
+    for button in BUTTON_FLAGS:
+        try:
+            _mouse(BUTTON_FLAGS[button][1], BUTTON_FLAGS[button][2])
+        except Exception:
+            failures.append(button)
+    for vk in set(KEY_CODES.values()):
+        try:
+            _virtual_key(vk, False)
+        except Exception:
+            failures.append(str(vk))
+    return failures

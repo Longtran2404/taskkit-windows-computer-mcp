@@ -1,0 +1,5 @@
+include README.md HUONG_DAN_VI.txt AGENTS.md CODEOWNERS LICENSE NOTICE
+include bridge_config.example.json MO_MAN_HINH.cmd pytest.ini
+recursive-include tests *.py
+recursive-include scripts *.py *.ps1
+recursive-include docs *.md
