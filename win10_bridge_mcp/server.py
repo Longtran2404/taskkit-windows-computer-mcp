@@ -51,6 +51,9 @@ def bridge_status() -> dict:
     from . import __version__
     return {
         "version": __version__,
+        "backend": "native_win32",
+        "initialization": "automatic on MCP startup / first native call",
+        "requires_sky": False,
         "developed_by": "TaskKit.vn - Minh Long Tran",
         "homepage": "https://taskkit.vn",
         "windows_capture": "PrintWindow (can fail for GPU CAD viewports)",

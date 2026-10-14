@@ -67,3 +67,7 @@ python scripts/live_mouse_test.py --run --out work/live-input-verification
 ```
 
 The runner records real window events, checks Unicode text in the editor, and confirms that a Windows Escape pulse latches the session stop. Generated logs, config and screenshots stay in the ignored work directory.
+
+## Native initialization
+
+TaskKit MCP initializes its Win32 backend on startup or the first native call. It does not depend on a Node REPL variable named sky. `bridge_status` exposes backend, initialization and requires_sky for diagnostics. A `sky is not defined` message belongs to an uninitialized external Computer Use REPL session; use the native MCP tools directly, or initialize that REPL using its documented bootstrap before calling sky.
