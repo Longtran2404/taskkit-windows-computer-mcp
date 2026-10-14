@@ -13,7 +13,7 @@ def read_state(out):
 async def main(out):
  out.mkdir(parents=True,exist_ok=True)
  cfg=out/'config.json';cfg.write_text(json.dumps({'allow_processes':['python.exe'],'mouse_control_mode':'foreground_session'}))
- fixture=subprocess.Popen([sys.executable,str(Path(__file__).with_name('live_mouse_fixture.py')),'--out',str(out)])
+ fixture=subprocess.Popen([sys.executable,str(Path(__file__).with_name('live_mouse_fixture.py')),'--out',str(out),'--keep-open-on-escape'])
  try:
   for _ in range(100):
    state=read_state(out)
@@ -34,6 +34,14 @@ async def main(out):
      result=await call('capture_window',{'window_id':wid});meta=json.loads(result.content[0].text)
      if name:(out/name).write_bytes(base64.b64decode(next(c.data for c in result.content if c.type=='image')))
      return meta
+    async def replace_fixture_text(text):
+     current=read_state(out);px,py=point(current['entry'],150,12)
+     meta=await capture();await call('click_left',{'window_id':wid,'capture_id':meta['capture_id'],'x':px,'y':py,'dry_run':False})
+     meta=await capture();await call('type_text',{'window_id':wid,'capture_id':meta['capture_id'],'text':text,'replace_all':True,'dry_run':False})
+     for _ in range(40):
+      if read_state(out)['text']==text:return
+      await asyncio.sleep(.05)
+     raise AssertionError(('Fixture text mismatch',read_state(out)['text'],text))
     await capture('before.png');print('LIVE_FIXTURE_READY',flush=True)
     def point(box,dx,dy):return box[0]+dx-win['rect']['x'],box[1]+dy-win['rect']['y']
     x,y=point(state['canvas'],160,140);ex,ey=point(state['canvas'],350,210)
@@ -72,6 +80,7 @@ async def main(out):
     ImageGrab.grab(all_screens=True).save(out/'desktop_indicator.png')
     # Send a real Windows Escape pulse to the currently active fixture.
     from win10_bridge_mcp import windows_native as native
+    assert native.U.GetForegroundWindow()==int(wid.split(':')[1],16),'Fixture lost focus before Escape pulse'
     native._virtual_key(0x1B,True);await asyncio.sleep(.12);native._virtual_key(0x1B,False)
     await asyncio.sleep(.2)
     for _ in range(50):
@@ -79,8 +88,29 @@ async def main(out):
      if status['session_stopped'] and not status['control_indicator_active']:break
      await asyncio.sleep(.04)
     assert status['session_stopped'] and not status['control_indicator_active']
-    blocked=await session.call_tool('capture_window',{'window_id':wid});assert blocked.isError
+    await call('inspect_windows',{})
+    stopped_capture=await capture()
+    blocked=await session.call_tool('type_text',{'window_id':wid,'capture_id':stopped_capture['capture_id'],'text':'MUST NOT TYPE','dry_run':False});assert blocked.isError
     results.append('escape_stop')
+    stopped_capture=await capture()
+    # Only an explicit new task starts a new session; old tickets stay invalid.
+    await call('start_control_session',{})
+    stale=await session.call_tool('type_text',{'window_id':wid,'capture_id':stopped_capture['capture_id'],'text':'STALE','dry_run':False});assert stale.isError
+    await replace_fixture_text('Restart sau ESC thành công')
+    status=json.loads((await call('bridge_status',{})).content[0].text);assert status['control_indicator_active'] and not status['session_stopped']
+    results.append('explicit_restart_and_stale_capture_rejection')
+    # Repeat with F12, then a real preview close, within the same MCP process.
+    assert native.U.GetForegroundWindow()==int(wid.split(':')[1],16),'Fixture lost focus before F12 pulse'
+    native._virtual_key(0x7B,True);await asyncio.sleep(.12);native._virtual_key(0x7B,False);await asyncio.sleep(.2)
+    status=json.loads((await call('bridge_status',{})).content[0].text);assert status['session_stopped']
+    await call('start_control_session',{})
+    await replace_fixture_text('Restart sau F12 thành công');results.append('f12_restart')
+    await call('show_live_view',{'window_id':wid});await call('close_live_view',{})
+    status=json.loads((await call('bridge_status',{})).content[0].text);assert status['session_stopped']
+    await call('inspect_windows',{});await call('start_control_session',{})
+    await replace_fixture_text('Restart sau đóng preview thành công');results.append('preview_close_restart')
+    await capture('after_restart.png')
+    await call('emergency_release',{})
     (out/'report.json').write_text(json.dumps({'passed':results,'count':len(results),'version':status['version']}),encoding='utf-8')
     print('ALL_LIVE_CHECKS_PASS',len(results),flush=True)
  finally:

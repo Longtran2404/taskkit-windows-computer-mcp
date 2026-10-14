@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.4 - 2026-10-15
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Fix inspect_windows, inspect_controls and capture_window failing after Esc/F12 cancellation. These read-only tools do not rearm input.
+- Add start_control_session for a new owner-authorized task, with no per-action dialog. Never automatically retry or replay a cancelled task.
+- Retire previous preview, indicator and emergency watcher before starting the new session. Old watcher events stay stopped; held Esc/F12 refuses restart.
+- Invalidate all screenshot tickets at restart; require a fresh capture before input.
+- Run the optional preview on a dedicated GUI thread, with Tk objects cleaned up on that thread, avoiding a stalled Windows spawned interpreter and cross-thread Tcl cleanup.
+- Add unit regressions and live same-process tests for Esc cancellation, blocked input, explicit restart, stale capture rejection, F12 restart and preview-close restart.
+- 30 unit tests, 20-tool stdio handshake and 16 real Windows input/lifecycle cases pass locally. Preview startup and clean shutdown also pass in the stdio fixture.
+
 ## 0.4.3 - 2026-10-14
 
 Developed by TaskKit.vn - Minh Long Tran.

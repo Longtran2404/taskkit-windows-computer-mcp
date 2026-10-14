@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.3
+# TaskKit.vn Windows Computer Bridge MCP v0.4.4
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -12,7 +12,9 @@ Local Windows MCP bridge for allowed windows. PNG screenshots are returned as MC
 
 - disabled: initial default; no physical input.
 - foreground_confirm_each: legacy local confirmation for each action.
-- foreground_session: owner-authorized session, with no per-action Yes dialogs. Escape/F12 permanently stops the process session, including further screenshot capture. No remote resume tool exists. A new explicitly authorized server session is required to resume.
+- foreground_session: owner-authorized session, with no per-action Yes dialogs. Escape/F12 cancels the current control task and stops further input. Read-only inspection and capture still work. Only a new owner-authorized task may explicitly call start_control_session; never automatically retry the cancelled task.
+
+After the owner requests a new task or says to try again, call start_control_session, then inspect_windows and capture_window before input. Restart retires old preview/indicator/watcher workers and invalidates all earlier capture IDs. It refuses to restart while Esc/F12 is held. The cancelled operation is never replayed. Reopening the preview, inspecting windows or capturing does not rearm input.
 
 Set the desired mode only in the local bridge_config.json. Example after owner authorizes a session:
 
@@ -24,7 +26,7 @@ Physical mouse/keyboard input shares the real desktop. Background PrintWindow ca
 
 ## Tools
 
-bridge_status, inspect_windows, capture_window, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+bridge_status, start_control_session, inspect_windows, capture_window, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
 
 - type_text supports Unicode and explicit replace_all in the focused editor.
 - press_key supports bounded keys and chords, e.g. ctrl+s, ctrl+l, alt+n, enter, tab.
@@ -44,6 +46,8 @@ Physical input verifies foreground and the target under mouse coordinates. UI Au
 Python 3.11 or later with Tkinter is supported. The installer automatically uses the installed Python 3 interpreter; use -PythonVersion 3.11 or -PythonVersion 3.13 to select one explicitly. Run scripts/install_windows.ps1. Only run with -InstallCodex when the owner authorizes changing Codex registration. The installer preserves existing config. This repository contains only the Windows Computer Bridge package and its tests.
 
 ## Verification
+
+v0.4.4 adds session restart regression tests and real same-process stop/restart checks. Read-only tools stay available after cancellation; actual input remains blocked until explicit new-session start. See CHANGELOG and the owner-run live test below for validated cases. After updating an already running Codex MCP process, reconnect/restart Codex once to load the new tool; subsequent session cancellations need no application restart.
 
 23 unit tests pass on the local Windows machine (Python 3.13). Real stdio handshake lists 19 tools. Verified actual click, Vietnamese Unicode typing/replacement, ctrl+s and ctrl+home, original-window Save As (original title becomes iloveyou - Notepad without *), matching Desktop file, Explorer directory opening, and a Windows SendInput Escape pulse latching the stop and blocking subsequent typing/capture. Optional preview renders and closes cleanly with exit code 0. v0.4.3 adds 13 real stdio/input checks on a dedicated Windows fixture: left/right/middle clicks, double click, X1/X2, drag, timed hold, vertical/horizontal wheel, Ctrl+Shift drag, Vietnamese text and Esc stop. The Windows PowerShell 5.1 installer is verified with Python 3.13 and preserves the existing configuration byte-for-byte. CAD/3D GPU viewport behavior and other DPI layouts remain unverified; the indicator was verified on the two monitors of this setup. Built-in Computer Use screenshot capture timed out on this machine; Bridge PrintWindow supplied the verified images.
 

@@ -80,6 +80,10 @@ class CaptureRegistry:
     def consume(self, token: str) -> None:
         self._tickets.pop(token, None)
 
+    def invalidate_all(self) -> None:
+        """A new control session must never replay prior screenshot tickets."""
+        self._tickets.clear()
+
 
 def normalize_allowlist(values: object) -> frozenset[str]:
     if not isinstance(values, list) or not values:

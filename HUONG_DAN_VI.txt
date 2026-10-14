@@ -1,4 +1,4 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.3
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.4
 Được phát triển bởi TaskKit.vn - Minh Long Tran.
 Website: https://taskkit.vn
 
@@ -10,6 +10,13 @@ Cửa sổ xem riêng Windows là tùy chọn, không tự mở.
 Cho phép theo phiên: chủ máy cấu hình mouse_control_mode = foreground_session.
 Không có hộp Yes từng lần. Esc/F12 dừng cả phiên; Codex không tự bật lại.
 Khởi động phiên mới chỉ theo yêu cầu mới của chủ máy.
+v0.4.4: Sau khi chủ máy nói làm lại hoặc giao việc điều khiển mới, Codex gọi
+start_control_session, rồi inspect_windows và capture_window để lấy ảnh mới.
+Lệnh kiểm tra/chụp vẫn hoạt động sau ESC, nhưng không tự bật lại điều khiển.
+Ảnh chụp cũ mất hiệu lực khi bắt đầu phiên mới. Phải thả ESC/F12 trước khi chạy lại.
+Không cần bấm Yes. Không tự tiếp tục thao tác đã bị hủy.
+Sau khi cài cập nhật, kết nối lại MCP hoặc khởi động lại Codex một lần để nhận
+lệnh mới; các lần hủy và làm lại sau đó không cần khởi động lại Codex.
 Mặc định bộ cài vẫn giữ disabled và bảo toàn cấu hình cũ.
 
 CÀI: Giải nén, chạy scripts/install_windows.ps1 (Python 3.11 trở lên có Tkinter (hỗ trợ Python 3.13)).

@@ -140,21 +140,49 @@ _session_lock = threading.Lock()
 
 
 def enable_session_stop() -> None:
-    """Owner-armed session, without per-action dialogs. Esc permanently latches stop."""
+    """Watch the current session; ordinary calls never clear its stop latch."""
     global _session_watcher
     with _session_lock:
         if _session_watcher is not None:
-            return  # Never clear a stopped session remotely.
+            return
         if U.GetAsyncKeyState(0x1B) & 0x8000 or U.GetAsyncKeyState(0x7B) & 0x8000:
             SESSION_STOP.set()
+        stop = SESSION_STOP
         def watch():
-            while not SESSION_STOP.is_set():
+            while not stop.is_set():
                 if U.GetAsyncKeyState(0x1B) & 0x8001 or U.GetAsyncKeyState(0x7B) & 0x8001:
-                    SESSION_STOP.set()
+                    stop.set()
                     return
-                SESSION_STOP.wait(0.02)
+                stop.wait(0.02)
         _session_watcher = threading.Thread(target=watch, daemon=True)
         _session_watcher.start()
+
+
+def start_new_session() -> None:
+    """Explicit owner-authorized restart, called only under the server input mutex.
+
+    Retire old workers before replacing the event. Their stop remains latched.
+    A held emergency key refuses restart; this never resumes an old operation.
+    """
+    global SESSION_STOP, _session_watcher
+    from . import viewer, indicator
+    SESSION_STOP.set()
+    _release_all()
+    viewer.reset_for_new_session()
+    indicator.reset_for_new_session()
+    with _session_lock:
+        if _session_watcher is not None:
+            _session_watcher.join(1)
+            if _session_watcher.is_alive():
+                raise RuntimeError("Previous stop watcher has not exited; session remains stopped")
+        # Reading discards the old 'pressed since last query' bit, but a held
+        # key still refuses restart. A new press is caught by the new watcher.
+        if U.GetAsyncKeyState(0x1B) & 0x8000 or U.GetAsyncKeyState(0x7B) & 0x8000:
+            raise InterruptedError("Release Esc/F12 before starting a new control session")
+        SESSION_STOP = threading.Event()
+        _session_watcher = None
+    enable_session_stop()
+    _stop_if_needed()
 
 
 @dataclass(frozen=True)
@@ -361,7 +389,7 @@ def _stop_if_needed() -> None:
         SESSION_STOP.set()
     if SESSION_STOP.is_set() or stopped():
         SESSION_STOP.set()
-        raise InterruptedError("Esc/F12 emergency abort or preview closed")
+        raise InterruptedError("Control session cancelled by Esc/F12 or preview close. Stop this task; call start_control_session only for a new owner-authorized task, then capture again.")
 
 
 def _interruptible_wait(seconds: float) -> None:

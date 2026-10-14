@@ -29,6 +29,17 @@ def close():
         _process.join(1)
 
 
+def reset_for_new_session():
+    global _process, _closed, _target
+    with _lock:
+        close()
+        if _process is not None and _process.is_alive():
+            raise RuntimeError('Previous indicator has not exited; session remains stopped')
+        _process = None
+        _closed = None
+        _target = None
+
+
 def ensure(session_stop):
     global _process, _closed
     with _lock:
@@ -51,12 +62,13 @@ def ensure(session_stop):
             close()
             detail = errors.get(timeout=1) if not errors.empty() else state
             raise RuntimeError('Computer Use indicator failed to start: ' + detail)
+        process, closed = _process, _closed
         def watch():
             while not session_stop.wait(.02):
-                if not _process.is_alive():
+                if not process.is_alive():
                     session_stop.set()
                     break
-            _closed.set()
+            closed.set()
         threading.Thread(target=watch, daemon=True).start()
 
 

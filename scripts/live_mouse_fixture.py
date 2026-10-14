@@ -1,7 +1,7 @@
 import argparse,ctypes,json,os,tkinter as tk,time
 from pathlib import Path
 from win10_bridge_mcp import windows_native as n
-p=argparse.ArgumentParser();p.add_argument('--out',required=True);a=p.parse_args();out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
+p=argparse.ArgumentParser();p.add_argument('--out',required=True);p.add_argument('--keep-open-on-escape',action='store_true');a=p.parse_args();out=Path(a.out);out.mkdir(parents=True,exist_ok=True)
 root=tk.Tk();root.title('TaskKit MCP v0.4.3 — Input test');root.geometry('760x470+300+180');root.configure(bg='#121c2d')
 tk.Label(root,text='TaskKit.vn  •  MCP v0.4.3  •  Kiểm tra chuột / bàn phím',font=('Segoe UI',14,'bold'),bg='#121c2d',fg='white',pady=14).pack(fill='x')
 canvas=tk.Canvas(root,bg='#1e3553',highlightthickness=0,height=270);canvas.pack(fill='both',expand=True,padx=18,pady=8)
@@ -32,7 +32,7 @@ def flush():
  except PermissionError:pass
  if (out/'close.request').exists():root.destroy();return
  root.after(30,flush)
-root.bind('<Escape>',lambda e:(record('escape'),root.after(180,root.destroy)))
+root.bind('<Escape>',lambda e:record('escape') if a.keep_open_on_escape else (record('escape'),root.after(180,root.destroy)))
 root.protocol('WM_DELETE_WINDOW',root.destroy)
 flush();root.mainloop()
 

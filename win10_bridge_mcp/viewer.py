@@ -1,10 +1,10 @@
-"""Local live window preview. Closing it latches a stop until reopened."""
+"""Local live window preview. Closing stops input until an explicit new session."""
 from __future__ import annotations
 
 from io import BytesIO
 import queue
 import threading
-import multiprocessing
+import atexit
 
 STOP = threading.Event()
 _lock = threading.Lock()
@@ -23,9 +23,24 @@ def stopped():
     return STOP.is_set() or _closed.is_set() or (_process is not None and not _process.is_alive())
 
 
+def reset_for_new_session():
+    global _process, _closed, _ready, _window_id
+    with _lock:
+        close_viewer()
+        if _process is not None:
+            _process.join(2)
+            if _process.is_alive():
+                raise RuntimeError("Previous preview has not exited; session remains stopped")
+        _process = None
+        _closed = threading.Event()
+        _ready = threading.Event()
+        _window_id = None
+        STOP.clear()
+
+
 def ensure_viewer(window_id, allowed):
     if stopped():
-        raise InterruptedError("Preview was closed; reopen with show_live_view to resume")
+        raise InterruptedError("Preview was closed; start_control_session requires a new owner-authorized task")
     if _process is not None and _process.is_alive():
         if _window_id != window_id:
             raise RuntimeError("Preview targets another window; close and reopen it for this target")
@@ -39,11 +54,12 @@ def show_viewer(window_id, allowed):
         if _process is not None and _process.is_alive():
             raise RuntimeError("Close the current preview before opening another")
         STOP.clear()
-        ctx = multiprocessing.get_context("spawn")
-        _closed = ctx.Event()
-        _ready = ctx.Event()
-        errors = ctx.Queue()
-        _process = ctx.Process(target=_run, args=(window_id, allowed, _closed, _ready, errors), daemon=True)
+        # Tk is created and serviced exclusively by this GUI thread. Avoid a
+        # dependence on a spawned interpreter from the Windows MCP stdio host.
+        _closed = threading.Event()
+        _ready = threading.Event()
+        errors = queue.Queue()
+        _process = threading.Thread(target=_run, args=(window_id, allowed, _closed, _ready, errors), daemon=True)
         _process.start()
         _window_id = window_id
         if not _ready.wait(5):
@@ -96,6 +112,8 @@ def _run(window_id, allowed, closed, ready, errors):
             if native.U.GetAsyncKeyState(0x1B) & 0x8000:
                 closed.set()
             if closed.is_set():
+                canvas.configure(image="")
+                canvas.image = None
                 root.destroy()
                 return
             try:
@@ -124,6 +142,14 @@ def _run(window_id, allowed, closed, ready, errors):
         ready.set()
     finally:
         closed.set()
+        # All Tk wrappers and their cyclic references must be released on the
+        # GUI thread, never by a later GC pass on the MCP request thread.
+        if root is not None:
+            try: root.destroy()
+            except Exception: pass
+        root = canvas = status = tick = capture = None
+        import gc
+        gc.collect()
 
 
 def main():
@@ -154,6 +180,15 @@ def main():
     if selected:
         show_viewer(selected[0], allowed)
         _process.join()
+
+
+def _shutdown():
+    close_viewer()
+    if _process is not None and _process is not threading.current_thread():
+        _process.join(2)
+
+
+atexit.register(_shutdown)
 
 
 if __name__ == "__main__":

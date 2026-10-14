@@ -50,7 +50,7 @@ def bridge_status() -> dict:
     """Read-only bridge capabilities and safety settings; no mouse movement."""
     cfg = load_config()
     from . import __version__
-    from . import indicator
+    from . import indicator, viewer
     return {
         "version": __version__,
         "backend": "native_win32",
@@ -63,7 +63,8 @@ def bridge_status() -> dict:
         "windows_capture": "PrintWindow (can fail for GPU CAD viewports)",
         "capture_mode": "background, no cursor movement, window must not be minimized",
         "mouse_mode": cfg["mouse_control_mode"],
-        "session_stopped": backend().SESSION_STOP.is_set() if cfg["mouse_control_mode"] == "foreground_session" else None,
+        "session_stopped": (backend().SESSION_STOP.is_set() or viewer.stopped()) if cfg["mouse_control_mode"] == "foreground_session" else None,
+        "new_session_tool": "start_control_session (only after owner requests a new task; never retry the cancelled task automatically)",
         "allowed_processes": sorted(cfg["allowed"]),
         "full_mouse": ["move", "click", "double_click", "drag", "hold", "scroll vertical", "scroll horizontal", "left", "right", "middle", "x1", "x2", "ctrl", "shift", "alt", "space"],
         "concurrent_desktop_mouse": False,
@@ -77,14 +78,33 @@ def bridge_status() -> dict:
 def inspect_windows() -> dict:
     """List only explicitly allowlisted, non-minimized desktop windows."""
     cfg = load_config()
-    if cfg["mouse_control_mode"] == "foreground_session":
-        require_session(cfg)
     wins = backend().enumerate_windows(cfg["allowed"])
     return {"windows": [
         {"window_id": w.id, "title": w.title, "exe": w.exe,
          "pid": w.pid, "rect": {"x": w.rect.left, "y": w.rect.top,
                               "width": w.rect.width, "height": w.rect.height}}
         for w in wins]}
+
+
+@mcp.tool()
+def start_control_session() -> dict:
+    """Start a NEW owner-authorized control task after Esc/F12 or preview close.
+
+    Esc cancels the current task: never call this automatically to retry it.
+    Use only when the owner explicitly asks to start/try again or gives a new
+    computer-control task. No input, focus change or queued-action replay.
+    Invalidates all old capture IDs. Inspect and capture again before input.
+    The local configuration must already authorize foreground_session.
+    """
+    cfg = load_config()
+    if cfg["mouse_control_mode"] != "foreground_session":
+        raise PermissionError("Owner must already enable foreground_session in local config")
+    with MOUSE_MUTEX:
+        REGISTRY.invalidate_all()
+        backend().start_new_session()
+    return {"started": True, "session_stopped": False, "old_captures_invalidated": True,
+            "next_step": "Inspect windows and capture again before any input",
+            "note": "New task only; cancelled actions are never replayed"}
 
 
 def require_session(cfg):
@@ -101,8 +121,6 @@ def inspect_controls(window_id: str) -> dict:
     """Read bounded UI Automation controls of an allowed window; omit passwords."""
     from . import ui_access
     cfg = load_config()
-    if cfg["mouse_control_mode"] == "foreground_session":
-        require_session(cfg)
     win = backend().get_window(window_id, cfg["allowed"])
     return {"window_id": window_id, "controls": ui_access.inspect(win.hwnd)}
 
@@ -252,8 +270,6 @@ def capture_window(window_id: str) -> CallToolResult:
     MCP screenshot bytes are transferred to the AI client, not solely kept local.
     """
     cfg = load_config()
-    if cfg["mouse_control_mode"] == "foreground_session":
-        require_session(cfg)
     win = backend().get_window(window_id, cfg["allowed"])
     png, method, blank = backend().capture_window(win)
     if blank:
