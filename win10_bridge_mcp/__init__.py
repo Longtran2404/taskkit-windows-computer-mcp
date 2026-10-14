@@ -1,1 +1,3 @@
-"""Win10 Computer Bridge MCP prototype: not a replacement for OpenAI Computer Use."""
+"""TaskKit.vn Windows Computer Bridge MCP."""
+
+__version__ = "0.4.2"

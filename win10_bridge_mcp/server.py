@@ -48,7 +48,9 @@ def backend():
 def bridge_status() -> dict:
     """Read-only bridge capabilities and safety settings; no mouse movement."""
     cfg = load_config()
+    from . import __version__
     return {
+        "version": __version__,
         "developed_by": "TaskKit.vn - Minh Long Tran",
         "homepage": "https://taskkit.vn",
         "windows_capture": "PrintWindow (can fail for GPU CAD viewports)",

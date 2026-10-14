@@ -19,3 +19,9 @@ jobs:
       - run: python -m pip install -e ".[test]"
       - run: python -m pytest -q
       - run: python scripts/smoke_test.py
+      - name: Verify Windows installer and installed MCP
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          .\scripts\install_windows.ps1 -PythonVersion '${{ matrix.python }}' -InstallDir "$env:RUNNER_TEMP\TaskKitInstall" -ConfigDir "$env:RUNNER_TEMP\TaskKitConfig"
+          & "$env:RUNNER_TEMP\TaskKitInstall\venv\Scripts\python.exe" scripts/smoke_test.py

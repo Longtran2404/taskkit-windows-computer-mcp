@@ -1,4 +1,4 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.1
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.2
 Được phát triển bởi TaskKit.vn - Minh Long Tran.
 Website: https://taskkit.vn
 
@@ -12,7 +12,7 @@ Không có hộp Yes từng lần. Esc/F12 dừng cả phiên; Codex không tự
 Khởi động phiên mới chỉ theo yêu cầu mới của chủ máy.
 Mặc định bộ cài vẫn giữ disabled và bảo toàn cấu hình cũ.
 
-CÀI: Giải nén, chạy scripts/install_windows.ps1 (Python 3.11 có Tkinter).
+CÀI: Giải nén, chạy scripts/install_windows.ps1 (Python 3.11 trở lên có Tkinter (hỗ trợ Python 3.13)).
 Đăng ký Codex dùng -InstallCodex chỉ khi chủ máy yêu cầu.
 Cấu hình: %USERPROFILE%\Win10_ComputerBridge\bridge_config.json
 Cho Explorer hoạt động cần thêm explorer.exe vào allow_processes.
@@ -24,5 +24,7 @@ save_notepad_text lưu bản sao và kiểm tra tệp; không thay thế thao t�
 ĐÃ KIỂM TRA: 16 unit tests; 14 công cụ qua MCP stdio; nhấp chuột, gõ/thay chữ
 Việt, phím tắt; lưu chính Notepad gốc thành iloveyou.txt trên Desktop và vẫn mở;
 mở thư mục Explorer; tín hiệu Esc của Windows dừng phiên, chặn gõ/chụp tiếp.
-CHƯA KIỂM TRA: toàn bộ thao tác CAD/3D và viewport GPU, bộ cài Python 3.11.
+v0.4.2: Đã kiểm tra bộ cài PowerShell 5.1 + Python 3.13, giữ nguyên cấu hình cũ.
+Đã qua 13 ca thao tác thật: trái/phải/giữa, nhấp đôi, X1/X2, kéo, giữ, cuộn dọc/ngang, Ctrl+Shift kéo, Unicode và Esc.
+CHƯA KIỂM TRA: hành vi trong CAD/3D GPU, nhiều màn hình hoặc tỷ lệ DPI khác.
 Bản này đã sửa mã và kiểm thử cục bộ; chưa cài đè cấu hình Codex/Revit, được công bố thành repository riêng: https://github.com/Longtran2404/taskkit-windows-computer-mcp

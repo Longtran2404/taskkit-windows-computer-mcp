@@ -8,3 +8,6 @@ bridge_config.json
 *.egg-info/
 build/
 dist/
+
+work/
+*.zip

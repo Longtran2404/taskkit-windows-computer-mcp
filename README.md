@@ -1,4 +1,6 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.1
+# TaskKit.vn Windows Computer Bridge MCP v0.4.2
+
+[![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
 **Developed by [TaskKit.vn](https://taskkit.vn) - Minh Long Tran.**
 
@@ -39,11 +41,11 @@ Physical input verifies foreground and the target under mouse coordinates. UI Au
 
 ## Install
 
-Python 3.11 with Tkinter is required by the preserved installer. Run scripts/install_windows.ps1. Only run with -InstallCodex when the owner authorizes changing Codex registration. The installer preserves existing config. This repository contains only the Windows Computer Bridge package and its tests.
+Python 3.11 or later with Tkinter is supported. The installer automatically uses the installed Python 3 interpreter; use -PythonVersion 3.11 or -PythonVersion 3.13 to select one explicitly. Run scripts/install_windows.ps1. Only run with -InstallCodex when the owner authorizes changing Codex registration. The installer preserves existing config. This repository contains only the Windows Computer Bridge package and its tests.
 
 ## Verification
 
-16 unit tests pass on the local Windows machine (Python 3.13). Real stdio handshake lists 14 tools. Verified actual click, Vietnamese Unicode typing/replacement, ctrl+s and ctrl+home, original-window Save As (original title becomes iloveyou - Notepad without *), matching Desktop file, Explorer directory opening, and a Windows SendInput Escape pulse latching the stop and blocking subsequent typing/capture. Optional preview renders and closes cleanly with exit code 0. All CAD/3D gestures, GPU rendering and Python 3.11 installer execution remain unverified. Built-in Computer Use screenshot capture timed out on this machine; Bridge PrintWindow supplied the verified images.
+16 unit tests pass on the local Windows machine (Python 3.13). Real stdio handshake lists 14 tools. Verified actual click, Vietnamese Unicode typing/replacement, ctrl+s and ctrl+home, original-window Save As (original title becomes iloveyou - Notepad without *), matching Desktop file, Explorer directory opening, and a Windows SendInput Escape pulse latching the stop and blocking subsequent typing/capture. Optional preview renders and closes cleanly with exit code 0. v0.4.2 adds 13 real stdio/input checks on a dedicated Windows fixture: left/right/middle clicks, double click, X1/X2, drag, timed hold, vertical/horizontal wheel, Ctrl+Shift drag, Vietnamese text and Esc stop. The Windows PowerShell 5.1 installer is verified with Python 3.13 and preserves the existing configuration byte-for-byte. CAD/3D GPU viewport behavior and multiple-monitor/DPI layouts remain unverified. Built-in Computer Use screenshot capture timed out on this machine; Bridge PrintWindow supplied the verified images.
 
 Apache-2.0; preserve LICENSE and NOTICE.
 
@@ -55,3 +57,13 @@ Repository owner and maintainer: **Longtran2404 (Minh Long Tran / TaskKit.vn)**.
 
 [GitHub repository](https://github.com/Longtran2404/taskkit-windows-computer-mcp) · [Download source ZIP](https://github.com/Longtran2404/taskkit-windows-computer-mcp/archive/refs/heads/main.zip)
 
+
+## Owner-run live input verification
+
+The live test uses its own disposable Tk window and temporarily allowlists python.exe. It occupies the physical pointer/keyboard and must only be run after owner authorization. It does not use production CAD/Revit models.
+
+```powershell
+python scripts/live_mouse_test.py --run --out work/live-input-verification
+```
+
+The runner records real window events, checks Unicode text in the editor, and confirms that a Windows Escape pulse latches the session stop. Generated logs, config and screenshots stay in the ignored work directory.
