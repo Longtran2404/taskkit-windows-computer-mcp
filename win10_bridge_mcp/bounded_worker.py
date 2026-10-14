@@ -11,6 +11,7 @@ import multiprocessing
 from pathlib import Path
 import tempfile
 import time
+from .policy import UnsupportedControlError
 
 MAX_RESULT_BYTES = 70_000_000
 
@@ -76,7 +77,8 @@ def run(target, payload, *, timeout=3.0, guard=lambda: None, on_unreaped=lambda:
                 raise TimeoutError("Native worker result exceeded deadline; discarded")
             if not result["ok"]:
                 error = {"ValueError": ValueError, "PermissionError": PermissionError,
-                         "InterruptedError": InterruptedError, "OSError": OSError}.get(result["kind"], RuntimeError)
+                         "InterruptedError": InterruptedError, "OSError": OSError,
+                         "UnsupportedControlError": UnsupportedControlError}.get(result["kind"], RuntimeError)
                 raise error(result["error"])
             value = _decode(result["value"])
             guard()

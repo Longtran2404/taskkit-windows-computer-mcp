@@ -54,9 +54,15 @@ Capture tokens expire after 90 seconds, are single-use for mutations, and bind i
 
 `PrintWindow` is best effort. Nonuniform pixels do **not** prove that a GPU/CAD viewport is correct, current or complete. Responses report method, status, timestamp, DPI, origin and uncertainty. Pixel dimensions and per-monitor awareness are checked. There is no full-desktop fallback or Windows Graphics Capture backend. Validate mixed-DPI/negative-monitor mapping manually before any CAD use. This bridge does not provide concurrent background physical input; use an application API or a separate Windows desktop/VM for that workflow.
 
+## App-only controls without bridge physical input
+
+[`app_control_action`](docs/APP_ONLY.md) implements supported UIA Value, Invoke, SelectionItem and Scroll patterns in one selected window, without bridge cursor/input/focus APIs. Keep `mouse_control_mode=disabled`; locally enable `semantic_control_mode=app_confirm_each` or `app_session` (default `disabled`). App-session consent is separate, window-scoped and expires after 5 minutes. `inspect_controls` advertises available patterns; fresh capture and a unique non-password control are required.
+
+Unsupported patterns return `unsupported_control`; no mouse/keyboard/focus/PostMessage fallback occurs. Native owner consent is interactive; the application/provider may itself change focus/UI in response to a semantic action. The window must be non-minimized, but need not be foreground. This is implemented and fake-tested code, with live Windows/provider/CAD/Blender support still unverified. See [feature details and examples](docs/APP_ONLY.md).
+
 ## Tools
 
-`bridge_status`, `inspect_windows`, `capture_window`, `show_live_view`, `close_live_view`, `mouse_action`, `type_text`, `press_key`, `inspect_controls`, `control_action`, `save_notepad_text`, `list_drives`, `open_directory`, `emergency_release`.
+`bridge_status`, `inspect_windows`, `capture_window`, `show_live_view`, `close_live_view`, `mouse_action`, `type_text`, `press_key`, `inspect_controls`, `control_action`, `save_notepad_text`, `list_drives`, `open_directory`, `emergency_release`, `app_control_action`.
 
 - Mouse: move, click/double-click, bounded drag/hold, vertical/horizontal wheel; left/right/middle/X1/X2; Ctrl/Shift/Alt/Space modifiers.
 - Text: bounded single-line literal Unicode, Vietnamese and UTF-16 emoji; `replace_all=true` explicitly performs Ctrl+A in the focused editor. Capture after clicking the intended editor first.
@@ -71,7 +77,7 @@ For original-window Save As, inspect/capture the current dialog, explicitly fill
 
 Run `MO_MAN_HINH.cmd`, `scripts/open_preview.ps1` or `python -m win10_bridge_mcp.viewer` for optional local preview. Closing it stops that process. Frames may be unavailable when workers time out or the target is minimized/changed.
 
-MCP runtime failures return `isError=true` with `structuredContent.error.code`, `message` and `effects_verified=false`; codes include `invalid_request`, `permission_denied`, `stop_or_intervention`, `native_timeout`, `file_exists`, `native_or_file_error`, `operation_failed`. Framework argument-validation failures can use the MCP framework's own error text. An error after an input/UIA/file effect can mean partial completion; inspect before retrying. Stdio stdout is reserved for MCP messages.
+MCP runtime failures return `isError=true` with `structuredContent.error.code`, `message` and `effects_verified=false`; codes include `invalid_request`, `permission_denied`, `stop_or_intervention`, `native_timeout`, `file_exists`, `native_or_file_error`, `operation_failed`, `unsupported_control`. Framework argument-validation failures can use the MCP framework's own error text. An error after an input/UIA/file effect can mean partial completion; inspect before retrying. Stdio stdout is reserved for MCP messages.
 
 ```sh
 python -m pytest -q

@@ -299,15 +299,29 @@ def check_window(win: Window, *, foreground=False):
 def _native_job(payload, cancel):
     global _worker_cancel, _worker_deadline
     _worker_cancel = cancel
-    operation, win, args, _worker_deadline = payload
-    check_window(win, foreground=operation not in {"capture", "inspect", "value_read"})
+    operation, win, args, _worker_deadline = payload[:4]
+    authorization = payload[4] if len(payload) > 4 else None
+    foreground = operation in {"set_value", "invoke"}
+    def guard():
+        check_window(win, foreground=foreground)
+        if _worker_deadline is not None and time.monotonic() >= _worker_deadline:
+            raise PermissionError("Local consent deadline expired before semantic effect")
+        if authorization is not None:
+            from .config import load_config
+            current = load_config()
+            if (current[authorization["mode_key"]] != authorization["mode"] or
+                    current["allowed"] != frozenset(authorization["allowed"])):
+                raise PermissionError("Local app-only policy changed before semantic effect")
+    guard()
     if operation == "capture":
         result = _capture_direct(win)
     else:
         from . import ui_access
-        guard = lambda: check_window(win, foreground=operation not in {"inspect", "value_read"})
-        result = ui_access._dispatch(operation, win.hwnd, args, guard)
-    check_window(win, foreground=operation not in {"capture", "inspect", "value_read"})
+        if operation.startswith("app_"):
+            result = ui_access._app_dispatch(operation[4:], win, args, guard)
+        else:
+            result = ui_access._dispatch(operation, win.hwnd, args, guard)
+    guard()
     return result
 
 

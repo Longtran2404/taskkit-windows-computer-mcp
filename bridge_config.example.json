@@ -1,5 +1,6 @@
 {
   "allow_processes": ["notepad.exe"],
   "mouse_control_mode": "disabled",
-  "notes": "Keep disabled initially. Foreground modes require local native consent; session consent expires after 5 minutes. Esc/F12/preview close permanently stops this process. Validate apps in an isolated Windows desktop before adding them."
+  "semantic_control_mode": "disabled",
+  "notes": "Keep disabled initially. Physical and app-only semantic modes have separate local native consent; session consent expires after 5 minutes. Esc/F12/preview close permanently stops this process. Validate apps in an isolated Windows desktop before adding them."
 }

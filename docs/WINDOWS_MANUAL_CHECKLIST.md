@@ -7,7 +7,7 @@
 - [ ] Extract full source; inspect LICENSE/NOTICE and default disabled config. Run the non-admin installer with Python 3.11, then separately 3.13; repeat installation and confirm there is no nested/stale package path. Verify package version `0.4.2.dev0` and `pip check`.
 - [ ] Test paths with spaces and Unicode. Confirm existing config bytes survive. Confirm `-InstallCodex` is the sole registration opt-in; omit it when registration should not change. Installer must not modify execution policy or request elevation.
 - [ ] Verify Tkinter preview availability. Run `python -m pytest -q` and `python scripts/smoke_test.py`. The ABI test should pass on Windows; remaining adapter tests are still simulations. Smoke uses disabled config and sends no input.
-- [ ] Start MCP stdio from the installed wheel outside the checkout. Check 14 tools, structured status, dry-run defaults and `isError` on invalid input. Confirm no network listener is opened.
+- [ ] Start MCP stdio from the installed wheel outside the checkout. Check 15 tools, structured status, dry-run defaults and `isError` on invalid input. Confirm no network listener is opened.
 
 ## Consent and permanent stop
 
@@ -46,3 +46,12 @@
 - [ ] Allowlist Explorer explicitly, approve session, open an existing local directory and verify the resulting Explorer window. Invocation/open requests alone do not prove completion.
 
 Do not publish compatibility claims until the relevant items are recorded as passed. CAD/3D, GPU correctness, background concurrent physical input and all live Windows outcomes remain outside this cloud's verification.
+
+## App-only feature (all pending on live Windows)
+
+- [ ] Keep physical mode disabled; enable app_confirm_each/app_session locally. Verify its separate local consent, shown payload, 5-minute expiry, one-window scope, config-change invalidation and stop latch. Status must show only an active app grant and remaining lifetime.
+- [ ] With a different window foreground and a supported, non-minimized target behind it, perform Value/Invoke/Select/Scroll. Record cursor/focus before/after and actual API calls if instrumented. The bridge must never call SetCursorPos/SendInput/SetForegroundWindow/SetFocus/PostMessage for the operation. Consent dialog requires local owner interaction; distinguish any provider-driven focus change.
+- [ ] Verify missing/read-only/disabled/unsupported-axis patterns return structured errors without input/focus fallback. Confirm empty/duplicate IDs and password controls are refused without value/name reads.
+- [ ] Reparent a same-process control to another overlapping window, replace its UIA root, change PID/bounds/password during pattern resolution, stop or expire/change consent before the effect. Refuse; no other window/control should be mutated.
+- [ ] Validate selection readback and scroll percentages/at-boundary behavior. A provider-dispatched action after timeout may complete; inspect before retry. Multi-process providers, invisible/off-window virtualized controls and deep (>64) trees can be refused by scope checks.
+- [ ] Do not claim CAD/Blender viewport background mouse support from passing generic UIA tests. Use a verified app API or separate desktop for that requirement.

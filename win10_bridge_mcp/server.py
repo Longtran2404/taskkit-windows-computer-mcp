@@ -18,7 +18,8 @@ from functools import wraps
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ImageContent, TextContent
 
-from .policy import CaptureRegistry, normalize_allowlist, validate_mouse
+from .policy import CaptureRegistry, validate_mouse, UnsupportedControlError
+from .config import load_config
 from .consent import ConsentGate
 
 APP_NAME = "TaskKit.vn Windows Computer Bridge MCP"
@@ -26,11 +27,13 @@ mcp = FastMCP(APP_NAME)
 REGISTRY = CaptureRegistry()
 MOUSE_MUTEX = threading.RLock()
 CONSENT = ConsentGate()
+APP_CONSENT = ConsentGate("semantic_control_mode")
 
 
 ERROR_CODES = {InterruptedError: "stop_or_intervention", PermissionError: "permission_denied",
                TimeoutError: "native_timeout", FileExistsError: "file_exists",
-               ValueError: "invalid_request", OSError: "native_or_file_error"}
+               ValueError: "invalid_request", OSError: "native_or_file_error",
+               UnsupportedControlError: "unsupported_control"}
 
 
 def tool():
@@ -95,20 +98,6 @@ def action_guard(cfg, native):
         CONSENT.check(cfg)
 
 
-def load_config() -> dict:
-    cfgfile = Path(os.environ.get("WIN10_BRIDGE_CONFIG", str(Path.home() / "Win10_ComputerBridge" / "bridge_config.json")))
-    cfg = {"allow_processes": ["notepad.exe"], "mouse_control_mode": "disabled"}
-    if cfgfile.exists():
-        raw = json.loads(cfgfile.read_text(encoding="utf-8-sig"))
-        if not isinstance(raw, dict):
-            raise ValueError("Configuration must be JSON object")
-        if set(raw) - {"allow_processes", "mouse_control_mode", "notes"}:
-            raise ValueError("Unexpected configuration keys")
-        cfg.update(raw)
-    cfg["allowed"] = normalize_allowlist(cfg["allow_processes"])
-    if cfg["mouse_control_mode"] not in {"disabled", "foreground_confirm_each", "foreground_session"}:
-        raise ValueError("mouse_control_mode must be disabled, foreground_confirm_each or foreground_session")
-    return cfg
 
 
 def backend():
@@ -126,6 +115,9 @@ def bridge_status() -> dict:
     native = backend() if available else None
     if native:
         native.enable_session_stop()
+    is_stopped = stopped() or bool(native and native.SESSION_STOP.is_set())
+    app_scope = dict(cfg, consent_window_id=APP_CONSENT.scope[2]) if APP_CONSENT.scope else cfg
+    app_armed = APP_CONSENT.armed(app_scope) and not is_stopped
     return {
         "developed_by": "TaskKit.vn - Minh Long Tran", "homepage": "https://taskkit.vn",
         "platform": sys.platform, "windows_available": available,
@@ -136,12 +128,20 @@ def bridge_status() -> dict:
                     "windows_graphics_capture": "not_implemented"},
         "uia_deadline_seconds": 3,
         "mouse_mode": cfg["mouse_control_mode"],
-        "session_armed": CONSENT.armed(cfg) and not stopped() and not bool(native and native.SESSION_STOP.is_set()),
+        "session_armed": CONSENT.armed(cfg) and not is_stopped,
         "session_max_seconds": 300,
-        "session_stopped": stopped() or bool(native and native.SESSION_STOP.is_set()),
+        "session_stopped": is_stopped,
         "allowed_processes": sorted(cfg["allowed"]),
         "full_mouse": ["move", "click", "double_click", "drag", "hold", "vertical wheel", "horizontal wheel", "left", "right", "middle", "x1", "x2", "ctrl", "shift", "alt", "space"],
         "concurrent_desktop_mouse": False,
+        "app_only": {"mode": cfg["semantic_control_mode"],
+                     "actions": ["set_value", "invoke", "select", "scroll"],
+                     "requires_control_pattern": True, "physical_input_fallback": False,
+                     "bridge_changes_focus": False, "live_windows_verified": False,
+                     "session_armed": app_armed,
+                     "consent_remaining_seconds": round(max(0, APP_CONSENT.expires - time.monotonic()), 1) if app_armed else 0,
+                     "session_window_id": APP_CONSENT.scope[2] if app_armed else None,
+                     "note": "Application/provider may change its own UI/focus; unsupported controls are refused."},
         "emergency_stop": "Esc/F12/preview close latches stop until local process restart",
         "local_preview": "optional; opening never clears stop or grants input consent",
         "timestamp_utc": datetime.now(timezone.utc).isoformat(),
@@ -193,8 +193,9 @@ def control_action(window_id: str, capture_id: str, automation_id: str,
     are excluded. Invocation alone does not certify that a save/open succeeded.
     """
     from . import ui_access
-    if action not in {"set_value", "invoke"} or len(value) > 4000:
+    if action not in {"set_value", "invoke"} or len(value) > 4000 or "\x00" in value:
         raise ValueError("Unsupported action or value too long")
+    value.encode("utf-16-le")
     cfg = load_config()
     native = running()
     with MOUSE_MUTEX:
@@ -217,6 +218,80 @@ def control_action(window_id: str, capture_id: str, automation_id: str,
                          lambda: (action_guard(cfg, native), native.check_window(win, foreground=True)),
                          deadline=CONSENT.expires)
         return {"invoke_requested": True, "notice": "Verify the resulting UI/file; invocation is not completion"}
+
+
+def app_action_guard(cfg, native, scope, deadline):
+    running(native)
+    current = load_config()
+    if current["allowed"] != cfg["allowed"] or current["semantic_control_mode"] != cfg["semantic_control_mode"]:
+        raise PermissionError("App-only configuration changed; operation aborted")
+    if time.monotonic() >= deadline:
+        raise PermissionError("Local app-only consent expired")
+    if cfg["semantic_control_mode"] == "app_session":
+        APP_CONSENT.check(scope)
+
+
+@tool()
+def app_control_action(window_id: str, capture_id: str, automation_id: str, action: str,
+                       value: str = "", horizontal: str = "none", vertical: str = "none",
+                       dry_run: bool = True) -> dict:
+    """App-scoped semantic UIA without bridge mouse/keyboard/focus changes.
+
+    Requires a supported Value/Invoke/SelectionItem/Scroll pattern in the selected
+    non-password control. No SendInput, SetFocus or PostMessage fallback. The app
+    itself may change UI/focus. Local semantic_control_mode consent is separate
+    from physical input. Fresh capture required; default dry run. Scroll amounts:
+    none, small_decrement, small_increment, large_decrement, large_increment.
+    """
+    from . import ui_access
+    if (action not in ui_access.APP_PATTERNS or not automation_id or len(automation_id) > 300 or
+            len(value) > 4000 or "\x00" in value or "\x00" in automation_id):
+        raise ValueError("Supported action, unique nonempty automation ID and bounded value required")
+    value.encode("utf-16-le")
+    if action == "scroll" and (horizontal not in ui_access.SCROLL_AMOUNTS or vertical not in ui_access.SCROLL_AMOUNTS or
+                                horizontal == vertical == "none"):
+        raise ValueError("Specify at least one supported scroll amount")
+    cfg = load_config()
+    native = running()
+    with MOUSE_MUTEX:
+        win = native.get_window(window_id, cfg["allowed"])
+        verify_ticket(native, win, capture_id)
+        if dry_run:
+            return {"dry_run": True, "execution_mode": "app_only", "action": action,
+                    "automation_id": automation_id, "pattern_verified": False,
+                    "note": "Capability is resolved at execution; inspect_controls lists advertised patterns."}
+        if cfg["semantic_control_mode"] == "disabled":
+            raise PermissionError("App-only actions disabled; owner must enable semantic_control_mode locally")
+        scope = dict(cfg, consent_window_id=win.id)
+        summary = (f"App-only {action} | {win.exe} | {win.title[:80]}\n"
+                   f"Window {win.id}, control {automation_id}\n"
+                   "Bridge will not move the cursor, send physical input or request focus.\n"
+                   "The application/provider may change its own UI or focus. Esc/F12 stops the process.")
+        if action == "set_value":
+            summary += f"\nSetValue {len(value)} characters: " + json.dumps(value[:160], ensure_ascii=False)
+        elif action == "scroll":
+            summary += f"\nScroll horizontal={horizontal}, vertical={vertical}"
+        if cfg["semantic_control_mode"] == "app_session":
+            APP_CONSENT.require(scope, ask_local_consent, lambda: running(native),
+                                description=summary + "\nAuthorize SetValue, Invoke, Select and Scroll in this window for up to 5 minutes?")
+            deadline = APP_CONSENT.expires
+        else:
+            if not ask_local_consent(summary + "\nAuthorize exactly this one operation?"):
+                raise PermissionError("Owner declined app-only consent")
+            deadline = time.monotonic() + 10  # One finite worker, never a reusable grant.
+        verify_ticket(native, win, capture_id)
+        app_action_guard(cfg, native, scope, deadline)
+        REGISTRY.consume(capture_id)
+        guard = lambda: (app_action_guard(cfg, native, scope, deadline), native.check_window(win))
+        result = ui_access.app_action(win, automation_id, action, value, horizontal, vertical,
+                                      guard=guard, deadline=deadline,
+                                      authorization={"mode_key": "semantic_control_mode",
+                                                     "mode": cfg["semantic_control_mode"],
+                                                     "allowed": sorted(cfg["allowed"])})
+        guard()
+        return {"execution_mode": "app_only", "action": action, **result,
+                "bridge_physical_input_sent": False, "bridge_focus_requested": False,
+                "notice": "Verify resulting app/UI state. Unsupported patterns never fall back to physical input."}
 
 
 def _file_matches(path, text):

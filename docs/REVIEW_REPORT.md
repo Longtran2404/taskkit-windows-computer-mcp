@@ -25,14 +25,20 @@ Ngày kiểm: 2026-10-14. Bản source candidate: **0.4.2.dev0**. Đây là bả
 | CRLF bị universal-newline | So sánh exact UTF-8 bytes, nhận optional BOM. Giữ CRLF/LF, Vietnamese/emoji/U+FEFF; exclusive create, không overwrite differing files hoặc race winner. Đọc buffer lại sau consent. |
 | Chẩn đoán / đóng gói | Capture/status có capability, uncertainty, timestamp, DPI/origin. Runtime MCP errors structured + isError. Smoke assertions thực; docs Anh/Việt và checklist Windows. Installer chọn interpreter và mang LICENSE/NOTICE; source manifests đầy đủ. Local-only checks từ chối UNC/device/ADS/mapped-network và kiểm canonical drive path. |
 
+## App-only bổ sung theo yêu cầu mới
+
+Đã triển khai tool `app_control_action` với Value/Invoke/SelectionItem/Scroll, consent riêng default-disabled và scoped theo một cửa sổ tối đa 5 phút. Physical mode có thể giữ disabled. Không có SetCursorPos/SendInput/SetForegroundWindow/SetFocus/PostMessage fallback. Current UIA root/ancestry/PID/bounds/password được recheck; child guard đọc lại semantic mode/allowlist và deadline ngay trước effect. Unsupported patterns trả `unsupported_control`/isError. Xem [APP_ONLY.md](APP_ONLY.md) cho cách dùng và ranh giới.
+
+Foundation commit local `9e0289e` đã có 150 passed/2 skipped trên mỗi Python3.12/3.13 (3 lần), smoke14 tools. App-only được tách thành commit tiếp theo. Review độc lập lần hai: 190 passed/2 skipped trên cả hai interpreter và smoke15 tools. Live providers có thể đổi UI/focus; tree checks không atomic, downstream effect sau cancellation vẫn có thể xảy ra. Chưa tích hợp API CAD/Blender.
+
 ## Kết quả kiểm
 
 | Kiểm tra | Kết quả | Loại bằng chứng |
 | --- | --- | --- |
 | Baseline pytest Python 3.12.14 | 12 passed, 4 skipped | Linux thật; backend giả lập/skip Win32 |
-| Regression Python 3.12.14, 3 lần | 150 passed, 2 skipped mỗi lần | Linux thật; fake adapters/Win32 guard bodies, real disposable subprocesses |
-| Regression Python 3.13.5, 3 lần | 150 passed, 2 skipped mỗi lần | Linux thật; cùng giới hạn backend |
-| Stdio smoke trên 3.12 và 3.13 | PASS, 14 tools | Process stdio MCP thật; disabled/unarmed status, schema/dry-run defaults, structured error + isError; không capture/input thật |
+| Regression Python 3.12.14, 3 lần | 190 passed, 2 skipped mỗi lần | Linux thật; fake adapters/Win32 guard bodies, real disposable subprocesses |
+| Regression Python 3.13.5, 3 lần | 190 passed, 2 skipped mỗi lần | Linux thật; cùng giới hạn backend |
+| Stdio smoke trên 3.12 và 3.13 | PASS, 15 tools | Process stdio MCP thật; disabled/unarmed status, schema/dry-run defaults, structured error + isError; không capture/input thật |
 | Independent read-only review | Đã hoàn tất; snapshot review chạy 136 passed, 2 skipped + smoke | Agent riêng, không edit/input; phát hiện stop propagation, preview races, late decode, key-up delay, DPI/path/license gaps đã sửa và thêm regression |
 | Build sdist/wheel, inventory LICENSE/NOTICE/source | PASS | Linux packaging thật; source gồm tests/fakes/scripts/docs |
 | Install wheel ngoài checkout, import + stdio smoke | PASS | Linux cài wheel thật trong venv riêng; không editable fallback |

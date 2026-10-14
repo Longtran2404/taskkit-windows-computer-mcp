@@ -28,7 +28,8 @@ def test_all_modes_stop_capture_uia_input(bridge, ticket, mode):
              lambda: server.type_text(win_id, ticket, 'x'),
              lambda: server.press_key(win_id, ticket, 's'),
              lambda: server.inspect_windows(), lambda: server.show_live_view(win_id),
-             lambda: server.control_action(win_id, ticket, '15', 'set_value')]
+             lambda: server.control_action(win_id, ticket, '15', 'set_value'),
+             lambda: server.app_control_action(win_id, ticket, 'item', 'invoke')]
     for call in calls:
         with pytest.raises(InterruptedError): call()
     assert not native.operations

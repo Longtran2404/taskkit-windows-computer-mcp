@@ -67,3 +67,22 @@ partial effects có thể đã xảy ra. Xem lại UI/file, không retry mù.
 Preview tùy chọn: MO_MAN_HINH.cmd hoặc scripts/open_preview.ps1, ảnh giữ cục bộ.
 Kiểm tự động: python -m pytest -q và python scripts/smoke_test.py.
 Đọc báo cáo để phân biệt kiểm thật Linux, giả lập và chưa chạy Windows.
+
+TÍNH NĂNG APP-ONLY ĐÃ TRIỂN KHAI (CHƯA KIỂM WINDOWS THẬT)
+Tool mới app_control_action: SetValue, Invoke, SelectionItem.Select, Scroll
+trên control có UI Automation pattern. Đường này không gọi input/focus của
+bridge và không fallback sang chuột/phím/PostMessage khi app không hỗ trợ.
+App/provider vẫn có thể tự đổi focus/mở dialog; local consent cần chủ máy
+thao tác. Không hứa viewport CAD/Blender nền phổ quát.
+Giữ mouse_control_mode=disabled và bật semantic_control_mode cục bộ:
+- disabled (mặc định): không semantic mutation.
+- app_confirm_each: xác nhận cục bộ từng thao tác, có payload preview.
+- app_session: consent tối đa 5 phút chỉ cho cửa sổ đã chọn, không cấp quyền
+  physical. Hết hạn/đổi target hoặc config cần đồng ý mới.
+inspect_controls quảng bá app_only_patterns; cần automation_id duy nhất và
+token capture mới. Value phải writable; selection thay chọn theo provider;
+scroll dùng none/small_decrement/small_increment/large_decrement/large_increment.
+Worker có deadline/stop; guard kiểm PID/bounds/password và root/ancestry hiện
+tại. Control không hỗ trợ trả unsupported_control/isError, không chuyển input.
+Đã có regression fake chứng minh không gọi SetCursorPos/SendInput/foreground
+trong đường semantic. Xem docs/APP_ONLY.md để xem đã triển khai và giới hạn.

@@ -12,6 +12,7 @@ def isolate_process_state(monkeypatch):
     monkeypatch.setattr(viewer, '_process', None)
     monkeypatch.setattr(server, 'REGISTRY', CaptureRegistry())
     monkeypatch.setattr(server, 'CONSENT', ConsentGate())
+    monkeypatch.setattr(server, 'APP_CONSENT', ConsentGate('semantic_control_mode'))
     yield
     viewer.STOP.clear()
     viewer._closed.clear()
@@ -20,7 +21,8 @@ def isolate_process_state(monkeypatch):
 @pytest.fixture
 def bridge(monkeypatch):
     native = FakeBackend()
-    cfg = {'allowed': frozenset({'notepad.exe'}), 'mouse_control_mode': 'foreground_session'}
+    cfg = {'allowed': frozenset({'notepad.exe'}), 'mouse_control_mode': 'foreground_session',
+           'semantic_control_mode': 'disabled'}
     monkeypatch.setattr(server, 'backend', lambda: native)
     monkeypatch.setattr(server, 'load_config', lambda: cfg)
     monkeypatch.setattr(server, 'ask_local_consent', lambda _: True)

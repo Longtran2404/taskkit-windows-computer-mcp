@@ -18,6 +18,10 @@ MAX_SCROLL_TICKS = 12
 MAX_CAPTURE_PIXELS = 12_000_000
 
 
+class UnsupportedControlError(RuntimeError):
+    """Selected app/control does not expose the requested semantic operation."""
+
+
 def require_local_windows_path(resolved: str, drive_type: int) -> None:
     """Check canonical path shape and Win32 drive type (not a filesystem sandbox)."""
     path = PureWindowsPath(resolved)
