@@ -1,5 +1,13 @@
 # Báo cáo bản duyệt TaskKit.vn Windows Computer Bridge MCP
 
+## Bổ sung ứng viên quyền owner 0.4.2.dev1
+
+Phần snapshot 0.4.2.dev0 bên dưới được giữ làm bằng chứng lịch sử. Ứng viên mới làm trên nhánh riêng `review/owner-grants-20261014` từ `aa446eca662e176cff257950b24a93ba193079d9`; mặc định vẫn legacy và physical/semantic disabled. Xem [OWNER_PERMISSIONS.md](OWNER_PERMISSIONS.md) cho phương án onboarding một lần, bearer profile thật của bridge, DPAPI policy, scope/deadline/connection lease, pause/revoke và desktop health.
+
+Regression cuối trên Linux Python 3.11.17/3.12.14/3.13.5: **319 passed, 2 skipped** mỗi interpreter; MCP smoke **19 tools PASS**, dependency checks PASS (3.11/3.13 dùng pip của venv 3.12 để quản lý target venv không cài pip). Review độc lập trước hai test status/config cuối: full 3.12 **317 passed, 2 skipped**, nhóm permissions/UI/preview **81 passed** trên cả ba interpreter, smoke 19 tools và diff-check sạch. Các gap EOF/cleanup, hủy preview, owner-close race, tự động hóa UI cấp quyền và đổi authorization mode đã được sửa, có regression.
+
+Tests mới dùng credential fixture cố định công khai, fake codec/ACL/COM/Win32, real SDK EOF/cancel và shared threading events; không tạo credential/grant thật. DPAPI/ACL, Tk/MessageBox owner UI, named mutex, desktop-health API và PowerShell installer mới chưa kiểm Windows thật. Kết quả owner probe capture và app-only do parent chuyển lại thuộc `aa446ec`, không xác nhận ứng viên quyền mới. Không thay máy người dùng, cài service/elevation/network hay kích hoạt persistent access. Artifact/commit/CI của ứng viên mới được ghi trong báo cáo bàn giao riêng; không merge/release.
+
 Ngày kiểm: 2026-10-14. Bản source candidate: **0.4.2.dev0**. Đây là bản reviewable trong môi trường Linux, chưa được xác nhận vận hành trên Windows thật/CAD/GPU. Các phần baseline, thay đổi và kết quả bên dưới ghi lại snapshot trước upload GitHub; xem bổ sung ngay dưới đây cho trạng thái mới.
 
 ## Bổ sung sau upload GitHub

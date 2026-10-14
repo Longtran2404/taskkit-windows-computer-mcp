@@ -15,6 +15,8 @@ import time
 import uuid
 from datetime import datetime, timezone
 from functools import wraps
+from contextlib import asynccontextmanager
+import anyio
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ImageContent, TextContent
@@ -22,10 +24,32 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from .policy import CaptureRegistry, validate_mouse, UnsupportedControlError
 from .config import load_config
 from .consent import ConsentGate
+from .permissions import PermissionRuntime, config_fingerprint
+from .desktop_health import desktop_health
 from .capture_policy import CAPTURE_MODES, choose_region, rect_data, validate_pixels
 
 APP_NAME = "TaskKit.vn Windows Computer Bridge MCP"
-mcp = FastMCP(APP_NAME)
+PERMISSIONS = PermissionRuntime()
+
+
+@asynccontextmanager
+async def connection_lifespan(app):
+    global REGISTRY
+    REGISTRY = CaptureRegistry()
+    PERMISSIONS.start(load_config())
+    try:
+        yield
+    finally:
+        from .viewer import disconnect_viewer, has_preview_activity
+        if has_preview_activity() and PERMISSIONS.lease is not None:
+            PERMISSIONS.lease.unclean = True  # Long-lived child cleanup not proven at EOF.
+        if disconnect_viewer():
+            stop_permissions()
+        PERMISSIONS.end()
+        REGISTRY = CaptureRegistry()
+
+
+mcp = FastMCP(APP_NAME, lifespan=connection_lifespan)
 REGISTRY = CaptureRegistry()
 MOUSE_MUTEX = threading.RLock()
 CONSENT = ConsentGate()
@@ -38,18 +62,91 @@ ERROR_CODES = {InterruptedError: "stop_or_intervention", PermissionError: "permi
                ValueError: "invalid_request", OSError: "native_or_file_error",
                UnsupportedControlError: "unsupported_control"}
 
+TOOL_CAPABILITIES = {
+    "inspect_windows": ("read_targets",), "inspect_capture_targets": ("read_targets",),
+    "inspect_controls": ("uia_read",), "capture_window": ("capture_window",),
+    "mouse_action": ("physical_input",), "type_text": ("physical_input",),
+    "press_key": ("physical_input",), "control_action": ("physical_input",),
+    "app_control_action": ("app_actions",), "save_notepad_text": ("file_save", "uia_read"),
+    "open_directory": ("open_directory",), "list_drives": ("read_drives",),
+    "show_live_view": ("local_preview",),
+}
+PUBLIC_TOOLS = {"bridge_status", "bridge_health", "pause_access", "close_live_view", "emergency_release"}
+
+
+def permission_guard(cfg, capability=None, exe=None):
+    return PERMISSIONS.check(cfg, capability, exe)
+
+
+def allowed_apps(cfg):
+    return PERMISSIONS.allowed(cfg)
+
+
+def worker_permission(cfg, capability, exe=None):
+    lease = permission_guard(cfg, capability, exe)
+    if lease is None:
+        return None
+    return {"profile_id": lease.record["profile_id"], "record": lease.record,
+            "policy": lease.policy, "deadline": lease.expires,
+            "capability": capability, "exe": exe}
+
+
+def stop_permissions():
+    try:
+        PERMISSIONS.pause()
+    except Exception:
+        PERMISSIONS.error = "Stop latched; pause write failed. Running marker blocks reconnect; recover locally."
+
 
 def tool():
     """Register a structured MCP boundary; direct Python calls keep exceptions."""
     def decorate(function):
         @wraps(function)
-        def boundary(*args, **kwargs):
+        async def boundary(*args, **kwargs):
+            lease = None
+            operation_done = None
             try:
-                result = function(*args, **kwargs)
+                cfg = load_config()
+                persistent = cfg.get("authorization_mode", "legacy") == "persistent"
+                session = mcp.get_context().session if persistent else None
+                with PERMISSIONS.request(session) as lease:
+                    for capability in TOOL_CAPABILITIES.get(function.__name__, ()):
+                        permission_guard(cfg, capability)
+                    if function.__name__ == "capture_screen":
+                        mode = kwargs.get("mode", args[0] if args else "window")
+                        capability = "read_targets" if kwargs.get("dry_run", True) else {
+                            "window": "capture_window", "monitor": "capture_monitor",
+                            "region": "capture_region", "virtual_desktop": "capture_desktop"}.get(mode, "capture_window")
+                        permission_guard(cfg, capability)
+                    operation_done = PERMISSIONS.operation(lease)
+                    def execute():
+                        try:
+                            return function(*args, **kwargs)
+                        except Exception as exc:
+                            if (lease is not None and function.__name__ in {
+                                    "mouse_action", "type_text", "press_key", "control_action",
+                                    "app_control_action", "save_notepad_text", "open_directory"} and
+                                    not isinstance(exc, (ValueError, FileExistsError, UnsupportedControlError))):
+                                lease.unclean = True  # Cleanup/effect completion not established.
+                            raise
+                        finally:
+                            operation_done.set()  # Includes native reaping / owned input cleanup.
+                    result = await anyio.to_thread.run_sync(execute, abandon_on_cancel=True)
+                    if lease is not None and function.__name__ not in PUBLIC_TOOLS:
+                        permission_guard(load_config())
                 if isinstance(result, dict):
                     return CallToolResult(structuredContent=result, content=[
                         TextContent(type="text", text=json.dumps(result, ensure_ascii=False))])
                 return result
+            except anyio.get_cancelled_exc_class():
+                PERMISSIONS.cancel(lease, unclean=operation_done is not None)
+                if lease is not None:
+                    from .viewer import disconnect_viewer, has_preview_activity
+                    if has_preview_activity():
+                        lease.unclean = True
+                    if disconnect_viewer():
+                        stop_permissions()
+                raise
             except Exception as exc:
                 code = next((v for k, v in ERROR_CODES.items() if isinstance(exc, k)), "operation_failed")
                 error = {"ok": False, "error": {"code": code, "message": str(exc),
@@ -62,12 +159,23 @@ def tool():
 
 
 def running(native=None):
+    cfg = load_config()
+    # An abandoned EOF/cancel worker must fail on its dead lease before it sees
+    # preview teardown and mistakes that orderly disconnect for an owner stop.
+    permission_guard(cfg)
     from .viewer import stopped
     if stopped():
+        stop_permissions()
         raise InterruptedError("Preview stop is permanent; restart bridge locally")
+    if cfg.get("authorization_mode", "legacy") == "persistent" and not desktop_health()["usable_interactive_context"]:
+        raise RuntimeError("Bridge is outside the verified owner input desktop; inspect bridge_health and launch from that desktop")
     native = backend() if native is None else native
     native.enable_session_stop()
-    native._stop_if_needed()
+    try:
+        native._stop_if_needed()
+    except InterruptedError:
+        stop_permissions()
+        raise
     return native
 
 
@@ -85,6 +193,9 @@ def authorize(cfg, native, summary):
     running(native)
     if cfg["mouse_control_mode"] == "disabled":
         raise PermissionError("Physical input disabled in local config")
+    if cfg.get("authorization_mode", "legacy") == "persistent":
+        permission_guard(cfg, "physical_input")
+        return
     if cfg["mouse_control_mode"] == "foreground_session":
         require_session(cfg)
     elif not ask_local_consent(summary):
@@ -95,9 +206,10 @@ def authorize(cfg, native, summary):
 def action_guard(cfg, native):
     running(native)
     current_cfg = load_config()
+    permission_guard(current_cfg)
     if current_cfg["allowed"] != cfg["allowed"] or current_cfg["mouse_control_mode"] != cfg["mouse_control_mode"]:
         raise PermissionError("Configuration changed during operation; input aborted")
-    if cfg["mouse_control_mode"] == "foreground_session":
+    if cfg["mouse_control_mode"] == "foreground_session" and cfg.get("authorization_mode", "legacy") == "legacy":
         CONSENT.check(cfg)
 
 
@@ -125,7 +237,13 @@ def bridge_status() -> dict:
     stored_capture_scope = json.loads(CAPTURE_CONSENT.scope[3]) if CAPTURE_CONSENT.scope else None
     capture_armed = (CAPTURE_CONSENT.armed(capture_scope) and not is_stopped and
                      bool(stored_capture_scope and stored_capture_scope[2] == cfg["capture_modes"]))
+    profile = PERMISSIONS.status(cfg)
+    profile_caps = set(profile["capabilities"]) if profile["authenticated"] and not is_stopped else set()
     return {
+        "authorization": profile if cfg.get("authorization_mode", "legacy") == "persistent" else {
+            "mode": "legacy", "authenticated": False, "native_chatgpt_permission_import": False},
+        "permission_source": cfg.get("authorization_mode", "legacy"),
+        "physical_policy_authorized": "physical_input" in profile_caps or (CONSENT.armed(cfg) and not is_stopped),
         "developed_by": "TaskKit.vn - Minh Long Tran", "homepage": "https://taskkit.vn",
         "platform": sys.platform, "windows_available": available,
         "capture": {"backend": "explicit_by_mode", "deadline_seconds": 3,
@@ -138,6 +256,7 @@ def bridge_status() -> dict:
                     "enabled_modes": cfg["capture_modes"], "available_modes": sorted(CAPTURE_MODES),
                     "consent_mode": cfg["capture_consent_mode"],
                     "consent_session_armed": capture_armed,
+                    "window_policy_authorized": "capture_window" in profile_caps or capture_armed,
                     "consent_remaining_seconds": round(max(0, CAPTURE_CONSENT.expires - time.monotonic()), 1) if capture_armed else 0,
                     "consent_scope": stored_capture_scope[:2] if capture_armed else None,
                     "desktop_modes_issue_input_tokens": False},
@@ -154,6 +273,7 @@ def bridge_status() -> dict:
                      "requires_control_pattern": True, "physical_input_fallback": False,
                      "bridge_changes_focus": False, "live_windows_verified": False,
                      "session_armed": app_armed,
+                     "policy_authorized": "app_actions" in profile_caps or app_armed,
                      "consent_remaining_seconds": round(max(0, APP_CONSENT.expires - time.monotonic()), 1) if app_armed else 0,
                      "session_window_id": APP_CONSENT.scope[2] if app_armed else None,
                      "note": "Application/provider may change its own UI/focus; unsupported controls are refused."},
@@ -165,11 +285,31 @@ def bridge_status() -> dict:
 
 
 @tool()
+def bridge_health() -> dict:
+    """Read transport/profile and Windows session/desktop readiness; no UI data/input."""
+    cfg = load_config()
+    return {"authorization_mode": cfg.get("authorization_mode", "legacy"),
+            "authorization": PERMISSIONS.status(cfg), "desktop": desktop_health(),
+            "note": "Protocol handshake, permission, interactive context and proven app operation are separate checks."}
+
+
+@tool()
+def pause_access() -> dict:
+    """Reduce access only: persistently pause this profile; owner must resume locally."""
+    stop_permissions()
+    from .viewer import close_viewer
+    close_viewer()
+    return {"paused": True, "session_stopped": True,
+            "notice": "Local owner permissions panel is required to resume; no MCP grant/resume tool."}
+
+
+@tool()
 def inspect_windows() -> dict:
     """List only explicitly allowlisted, non-minimized desktop windows."""
     cfg = load_config()
+    permission_guard(cfg, "read_targets")
     running()
-    wins = backend().enumerate_windows(cfg["allowed"])
+    wins = backend().enumerate_windows(allowed_apps(cfg))
     return {"windows": [
         {"window_id": w.id, "title": w.title, "exe": w.exe,
          "pid": w.pid, "dpi": w.dpi, "rect": {"x": w.rect.left, "y": w.rect.top,
@@ -177,10 +317,14 @@ def inspect_windows() -> dict:
         for w in wins]}
 
 
-def require_session(cfg):
+def require_session(cfg, capability="physical_input"):
     if cfg["mouse_control_mode"] != "foreground_session":
         raise PermissionError("Owner must enable foreground_session locally for semantic actions")
     native = running()
+    if cfg.get("authorization_mode", "legacy") == "persistent":
+        permission_guard(cfg, capability)
+        action_guard(cfg, native)
+        return native
     CONSENT.require(cfg, ask_local_consent, lambda: running(native))
     action_guard(cfg, native)
     return native
@@ -191,10 +335,11 @@ def inspect_controls(window_id: str) -> dict:
     """Read bounded UI Automation controls of an allowed window; omit passwords."""
     from . import ui_access
     cfg = load_config()
+    permission_guard(cfg, "uia_read")
     native = running()
     with MOUSE_MUTEX:
-        win = native.get_window(window_id, cfg["allowed"])
-        controls = ui_access.inspect(win, lambda: native.check_window(win))
+        win = native.get_window(window_id, allowed_apps(cfg))
+        controls = ui_access.inspect(win, lambda: (running(native), native.check_window(win)))
         native.check_window(win)
         return {"window_id": window_id, "controls": controls}
 
@@ -214,7 +359,7 @@ def control_action(window_id: str, capture_id: str, automation_id: str,
     cfg = load_config()
     native = running()
     with MOUSE_MUTEX:
-        win = native.get_window(window_id, cfg["allowed"])
+        win = native.get_window(window_id, allowed_apps(cfg))
         verify_ticket(native, win, capture_id)
         if dry_run:
             return {"dry_run": True, "action": action, "automation_id": automation_id}
@@ -224,25 +369,27 @@ def control_action(window_id: str, capture_id: str, automation_id: str,
         verify_ticket(native, win, capture_id)
         action_guard(cfg, native)
         REGISTRY.consume(capture_id)
+        deadline = permission_guard(cfg, "physical_input", win.exe).expires if cfg.get("authorization_mode", "legacy") == "persistent" else CONSENT.expires
         if action == "set_value":
             actual = ui_access.value(win, automation_id, value,
                                       guard=lambda: (action_guard(cfg, native), native.check_window(win, foreground=True)),
-                                      deadline=CONSENT.expires)
+                                      deadline=deadline)
             return {"value_matches": actual == value, "notice": "Capture to verify UI"}
         ui_access.invoke(win, automation_id,
                          lambda: (action_guard(cfg, native), native.check_window(win, foreground=True)),
-                         deadline=CONSENT.expires)
+                         deadline=deadline)
         return {"invoke_requested": True, "notice": "Verify the resulting UI/file; invocation is not completion"}
 
 
 def app_action_guard(cfg, native, scope, deadline):
     running(native)
     current = load_config()
+    permission_guard(current, "app_actions")
     if current["allowed"] != cfg["allowed"] or current["semantic_control_mode"] != cfg["semantic_control_mode"]:
         raise PermissionError("App-only configuration changed; operation aborted")
     if time.monotonic() >= deadline:
         raise PermissionError("Local app-only consent expired")
-    if cfg["semantic_control_mode"] == "app_session":
+    if cfg["semantic_control_mode"] == "app_session" and cfg.get("authorization_mode", "legacy") == "legacy":
         APP_CONSENT.check(scope)
 
 
@@ -269,7 +416,7 @@ def app_control_action(window_id: str, capture_id: str, automation_id: str, acti
     cfg = load_config()
     native = running()
     with MOUSE_MUTEX:
-        win = native.get_window(window_id, cfg["allowed"])
+        win = native.get_window(window_id, allowed_apps(cfg))
         verify_ticket(native, win, capture_id)
         if dry_run:
             return {"dry_run": True, "execution_mode": "app_only", "action": action,
@@ -286,7 +433,9 @@ def app_control_action(window_id: str, capture_id: str, automation_id: str, acti
             summary += f"\nSetValue {len(value)} characters: " + json.dumps(value[:160], ensure_ascii=False)
         elif action == "scroll":
             summary += f"\nScroll horizontal={horizontal}, vertical={vertical}"
-        if cfg["semantic_control_mode"] == "app_session":
+        if cfg.get("authorization_mode", "legacy") == "persistent":
+            deadline = permission_guard(cfg, "app_actions", win.exe).expires
+        elif cfg["semantic_control_mode"] == "app_session":
             APP_CONSENT.require(scope, ask_local_consent, lambda: running(native),
                                 description=summary + "\nAuthorize SetValue, Invoke, Select and Scroll in this window for up to 5 minutes?")
             deadline = APP_CONSENT.expires
@@ -302,7 +451,9 @@ def app_control_action(window_id: str, capture_id: str, automation_id: str, acti
                                       guard=guard, deadline=deadline,
                                       authorization={"mode_key": "semantic_control_mode",
                                                      "mode": cfg["semantic_control_mode"],
-                                                     "allowed": sorted(cfg["allowed"])})
+                                                     "allowed": sorted(cfg["allowed"]),
+                                                     "authorization_policy": config_fingerprint(cfg),
+                                                     "persistent": worker_permission(cfg, "app_actions", win.exe)})
         guard()
         return {"execution_mode": "app_only", "action": action, **result,
                 "bridge_physical_input_sent": False, "bridge_focus_requested": False,
@@ -329,6 +480,8 @@ def save_notepad_text(window_id: str, capture_id: str, path: str, open_saved: bo
     import subprocess
     from . import ui_access
     cfg = load_config()
+    permission_guard(cfg, "file_save")
+    permission_guard(cfg, "uia_read")
     native = running()
     target = Path(path)
     if not target.is_absolute() or str(target).startswith("\\\\") or target.suffix.lower() != ".txt":
@@ -337,17 +490,17 @@ def save_notepad_text(window_id: str, capture_id: str, path: str, open_saved: bo
     if not target.parent.is_dir():
         raise ValueError("Existing local parent directory required")
     with MOUSE_MUTEX:
-        win = native.get_window(window_id, cfg["allowed"])
+        win = native.get_window(window_id, allowed_apps(cfg))
         if win.exe != "notepad.exe":
             raise ValueError("This semantic save only supports classic Notepad")
         verify_ticket(native, win, capture_id)
-        text = ui_access.value(win, "15", guard=lambda: native.check_window(win))
+        text = ui_access.value(win, "15", guard=lambda: (running(native), native.check_window(win)))
         verify_ticket(native, win, capture_id)
         if len(text) > 1_000_000:
             raise ValueError("Notepad buffer too large")
         if dry_run:
             return {"dry_run": True, "path": str(target), "characters": len(text)}
-        require_session(cfg)
+        require_session(cfg, "file_save")
         verify_ticket(native, win, capture_id)
         # Refresh the editor after the human dialog; do not save a pre-consent buffer.
         text = ui_access.value(win, "15", guard=lambda: (action_guard(cfg, native), native.check_window(win)))
@@ -384,16 +537,20 @@ def show_live_view(window_id: str) -> dict:
     """
     from .viewer import show_viewer
     cfg = load_config()
+    permission_guard(cfg, "local_preview")
     running()
-    backend().get_window(window_id, cfg["allowed"])
+    backend().get_window(window_id, allowed_apps(cfg))
     with MOUSE_MUTEX:
-        return show_viewer(window_id, cfg["allowed"])
+        return show_viewer(window_id, allowed_apps(cfg),
+                           authorization=worker_permission(cfg, "local_preview"),
+                           guard=lambda: running())
 
 
 @tool()
 def close_live_view() -> dict:
     """Close the local preview and latch an emergency stop for physical input."""
     from .viewer import close_viewer
+    stop_permissions()
     close_viewer()
     return {"close_requested": True, "input_stopped": True}
 
@@ -408,7 +565,7 @@ def capture_window(window_id: str) -> CallToolResult:
     cfg = load_config()
     native = running()
     with MOUSE_MUTEX:
-        win = native.get_window(window_id, cfg["allowed"])
+        win = native.get_window(window_id, allowed_apps(cfg))
         validate_pixels(win.rect)
         scope, deadline = authorize_capture(cfg, native, "window", win.id,
             f"Allowlisted window {win.exe} | {win.title[:80]} | {win.id}")
@@ -417,7 +574,9 @@ def capture_window(window_id: str) -> CallToolResult:
         started = time.monotonic()
         png, method, blank = native.capture_window(win, guard=guard, deadline=deadline,
             authorization={"mode_key": "capture_consent_mode", "mode": cfg["capture_consent_mode"],
-                           "allowed": sorted(cfg["allowed"]), "capture_modes": cfg["capture_modes"]})
+                           "allowed": sorted(cfg["allowed"]), "capture_modes": cfg["capture_modes"],
+                           "authorization_policy": config_fingerprint(cfg),
+                           "persistent": worker_permission(cfg, "capture_window", win.exe)})
         native.check_window(win)
         running(native)
         guard()
@@ -432,7 +591,7 @@ def capture_window(window_id: str) -> CallToolResult:
         running(native)
         t = REGISTRY.issue(win.id, win.rect, method, dpi=win.dpi)
         info = {"window_id": win.id, "capture_id": t.token,
-                "mode": "window", "input_authorization": "window_token_only; separate input consent required",
+                "mode": "window", "input_authorization": "window_token_only; separate owner input capability required",
                 "width": win.rect.width, "height": win.rect.height, "dpi": win.dpi,
                 "origin": [win.rect.left, win.rect.top], "mapping": "outer-window physical pixels",
                 "method": method, "status": "best_effort_unverified", "nonuniform": True,
@@ -459,6 +618,10 @@ def authorize_capture(cfg, native, mode, target_key, description):
     if mode not in cfg["capture_modes"]:
         raise PermissionError("Capture mode disabled in local capture_modes; no wider-scope fallback")
     scope = dict(cfg, consent_scope_key=json.dumps([mode, target_key, cfg["capture_modes"]], sort_keys=True))
+    if cfg.get("authorization_mode", "legacy") == "persistent":
+        capability = {"window": "capture_window", "monitor": "capture_monitor",
+                      "region": "capture_region", "virtual_desktop": "capture_desktop"}[mode]
+        return scope, permission_guard(cfg, capability).expires
     summary = (f"Capture and SEND an image to the connected MCP/AI client.\nMode: {mode}\n{description}\n"
                "This is data sharing, not input permission. No physical input or desktop fallback.\n"
                "Images may contain private documents/visible secrets; no automatic redaction.\n")
@@ -479,10 +642,11 @@ def authorize_capture(cfg, native, mode, target_key, description):
 def capture_read_guard(cfg, native, scope, deadline):
     running(native)
     current = load_config()
+    permission_guard(current)
     if (current["capture_modes"] != cfg["capture_modes"] or current["capture_consent_mode"] != cfg["capture_consent_mode"] or
             current["allowed"] != cfg["allowed"] or time.monotonic() >= deadline):
         raise PermissionError("Capture scope/consent expired or configuration changed")
-    if cfg["capture_consent_mode"] == "session":
+    if cfg["capture_consent_mode"] == "session" and cfg.get("authorization_mode", "legacy") == "legacy":
         CAPTURE_CONSENT.check(scope)
 
 
@@ -490,9 +654,10 @@ def capture_read_guard(cfg, native, scope, deadline):
 def inspect_capture_targets() -> dict:
     """Read allowed windows/monitor geometry and enabled modes, without images or consent arming."""
     cfg = load_config()
+    permission_guard(cfg, "read_targets")
     native = running()
     layout = native.screen_layout()
-    windows = native.enumerate_windows(cfg["allowed"])
+    windows = native.enumerate_windows(allowed_apps(cfg))
     running(native)
     return {**layout.describe(), "enabled_modes": cfg["capture_modes"], "max_pixels": 12_000_000,
             "windows": [{"window_id": w.id, "exe": w.exe, "title": w.title,
@@ -520,7 +685,7 @@ def capture_screen(mode: str = "window", window_id: str = "", monitor_id: str = 
         if mode == "window":
             if not window_id or monitor_id or any((left, top, width, height)):
                 raise ValueError("Window mode takes only window_id")
-            win = native.get_window(window_id, cfg["allowed"])
+            win = native.get_window(window_id, allowed_apps(cfg))
             validate_pixels(win.rect)
             if dry_run:
                 return {"dry_run": True, "mode": mode, "window_id": win.id, "rect": rect_data(win.rect),
@@ -544,7 +709,9 @@ def capture_screen(mode: str = "window", window_id: str = "", monitor_id: str = 
         started = time.monotonic()
         png, method, uniform = native.capture_screen(rect, layout, guard=guard, deadline=deadline,
             authorization={"capture_modes": cfg["capture_modes"], "capture_consent_mode": cfg["capture_consent_mode"],
-                           "allowed": sorted(cfg["allowed"])})
+                           "allowed": sorted(cfg["allowed"]),
+                           "authorization_policy": config_fingerprint(cfg),
+                           "persistent": worker_permission(cfg, {"monitor": "capture_monitor", "region": "capture_region", "virtual_desktop": "capture_desktop"}[mode])})
         guard()
         from io import BytesIO
         from PIL import Image
@@ -571,9 +738,11 @@ def _consent_job(summary, cancel):
     user32 = ct.WinDLL("user32", use_last_error=True)
     user32.MessageBoxW.argtypes = (wt.HWND, wt.LPCWSTR, wt.LPCWSTR, wt.UINT)
     user32.MessageBoxW.restype = ct.c_int
-    return user32.MessageBoxW(None,
-        "MCP requests an operation. Review the scope below. Only the local owner should approve.\n\n" + summary,
-        "TaskKit.vn - local owner consent", 0x00000004 | 0x00000030 | 0x00040000) == 6
+    from .owner_surface import protected_consent_window
+    with protected_consent_window() as owner:
+        return user32.MessageBoxW(owner,
+            "MCP requests an operation. Review the scope below. Only the local owner should approve.\n\n" + summary,
+            "TaskKit.vn - local owner consent", 0x00000004 | 0x00000030 | 0x00040000) == 6
 
 
 def ask_local_consent(summary: str) -> bool:
@@ -613,7 +782,7 @@ def mouse_action(
     m = running()
     mods = validate_mouse(action, button, duration_ms, steps, wheel_ticks, wheel_axis, modifiers)
     with MOUSE_MUTEX:
-        win = m.get_window(window_id, cfg["allowed"])
+        win = m.get_window(window_id, allowed_apps(cfg))
         ex = x if end_x == -1 else end_x
         ey = y if end_y == -1 else end_y
         sx, sy = win.rect.absolute(x, y)
@@ -653,7 +822,7 @@ def type_text(window_id: str, capture_id: str, text: str, dry_run: bool = True, 
     cfg = load_config()
     native = running()
     with MOUSE_MUTEX:
-        win = native.get_window(window_id, cfg["allowed"])
+        win = native.get_window(window_id, allowed_apps(cfg))
         verify_ticket(native, win, capture_id)
         summary = f"{win.exe} | {win.title[:80]}\nType {len(text)} characters (replace all={replace_all}): {text[:160]}"
         if dry_run:
@@ -681,7 +850,7 @@ def press_key(window_id: str, capture_id: str, key: str, dry_run: bool = True) -
     if len(parts) > 1 and (any(k not in {"ctrl", "shift", "alt"} for k in parts[:-1]) or parts[-1] in {"ctrl", "shift", "alt"}):
         raise ValueError("Use modifier(s)+one key")
     with MOUSE_MUTEX:
-        win = native.get_window(window_id, cfg["allowed"])
+        win = native.get_window(window_id, allowed_apps(cfg))
         verify_ticket(native, win, capture_id)
         if dry_run:
             return {"dry_run": True, "key": key, "window_id": window_id}
@@ -696,6 +865,7 @@ def press_key(window_id: str, capture_id: str, key: str, dry_run: bool = True) -
 def list_drives() -> dict:
     """Read existing local drive roots, for choosing an Explorer destination."""
     import string
+    permission_guard(load_config(), "read_drives")
     running()
     return {"drives": [f"{letter}:\\" for letter in string.ascii_uppercase if Path(f"{letter}:\\").is_dir()]}
 
@@ -708,7 +878,7 @@ def open_directory(path: str) -> dict:
     No files/executables/URLs/UNC destinations; Esc stops this action too.
     """
     cfg = load_config()
-    if cfg["mouse_control_mode"] != "foreground_session" or "explorer.exe" not in cfg["allowed"]:
+    if cfg["mouse_control_mode"] != "foreground_session" or "explorer.exe" not in allowed_apps(cfg):
         raise PermissionError("Owner must enable foreground_session and allow explorer.exe")
     target = Path(path)
     if not target.is_absolute() or str(target).startswith("\\\\"):
@@ -717,7 +887,7 @@ def open_directory(path: str) -> dict:
     target = native.local_path(target, directory=True)
     if not target.is_dir():
         raise ValueError("Existing absolute local directory required")
-    require_session(cfg)
+    require_session(cfg, "open_directory")
     action_guard(cfg, native)
     os.startfile(str(target))
     return {"open_requested": True, "path": str(target), "notice": "Inspect windows and capture Explorer to verify"}
@@ -727,6 +897,7 @@ def open_directory(path: str) -> dict:
 def emergency_release() -> dict:
     """Best-effort release of any injected mouse buttons and modifiers; no dialog."""
     from .viewer import close_viewer
+    stop_permissions()
     close_viewer()  # Also stops the separate preview's capture workers.
     native = backend()
     native.latch_stop()
@@ -738,8 +909,11 @@ def emergency_release() -> dict:
 def main() -> None:
     # Read config at startup so malformed settings fail fast.
     cfg = load_config()
+    PERMISSIONS.configure(cfg, os.environ)
     if sys.platform == "win32":
-        running()  # Stop watcher in every mode; configuration does not grant consent.
+        native = backend()
+        native.register_stop_callback(stop_permissions)
+        native.enable_session_stop()
     mcp.run(transport="stdio")
 
 

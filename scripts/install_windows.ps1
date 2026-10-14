@@ -3,6 +3,7 @@
 [CmdletBinding()]
 param(
     [switch]$InstallCodex,
+    [switch]$OwnerOnboarding,
     [ValidateSet('3.11','3.12','3.13')][string]$PythonVersion = '3.11'
 )
 Set-StrictMode -Version Latest
@@ -23,6 +24,7 @@ Copy-Item -Path (Join-Path $root 'pyproject.toml') -Destination $src -Force
 foreach ($document in @('LICENSE','NOTICE','README.md')) {
     Copy-Item -LiteralPath (Join-Path $root $document) -Destination $src -Force
 }
+Copy-Item -LiteralPath (Join-Path $root 'docs') -Destination $install -Recurse -Force
 $venv = Join-Path $install 'venv'
 & py.exe "-$PythonVersion" -m venv $venv
 if ($LASTEXITCODE -ne 0) { throw 'Python venv creation failed' }
@@ -42,4 +44,10 @@ if ($InstallCodex) {
     Write-Host 'Codex MCP registered. Restart Codex to detect it.'
 }
 Write-Host "Python: $python"
+if ($OwnerOnboarding) {
+    # Only the owner-running installer can request this local UI. It does not
+    # turn on persistent mode or register credentials with any AI host.
+    & $python -m win10_bridge_mcp --permissions
+    if ($LASTEXITCODE -ne 0) { throw 'Owner permissions UI failed; access was not enabled automatically.' }
+}
 Write-Host 'Next: Codex -> inspect_windows / capture_window. Screen images may leave machine through AI client.'

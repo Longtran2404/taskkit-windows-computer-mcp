@@ -64,3 +64,6 @@ Implemented and fake-tested: all four pattern paths; no calls to physical/focus 
 Not live-validated: Windows COM/providers, actual occluded app support, Tkinter/consent behavior or CAD/Blender/GPU viewport operations. Real app APIs or a separate Windows desktop remain options for viewport-independent work; no CAD/Blender API integration or universal background mouse emulation is implemented here. Follow [Windows manual checks](WINDOWS_MANUAL_CHECKLIST.md).
 
 Primary API references: [UIA patterns overview](https://learn.microsoft.com/en-us/windows/win32/winauto/uiauto-controlpatternsoverview), [IUIAutomationScrollPattern](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationclient/nn-uiautomationclient-iuiautomationscrollpattern), [ScrollAmount](https://learn.microsoft.com/en-us/windows/win32/api/uiautomationcore/ne-uiautomationcore-scrollamount). Provider pattern availability is application-specific and can change dynamically.
+# Persistent owner profile option
+
+The window-scoped dialogs below describe default legacy authorization. The optional [owner profile](OWNER_PERMISSIONS.md) reuses an explicitly enrolled app/capability scope across windows and clean connections without repeated dialogs; pattern/identity/geometry/stop guards remain. This permissions upgrade has not been verified with a live Windows provider.

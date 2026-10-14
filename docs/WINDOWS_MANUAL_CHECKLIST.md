@@ -1,4 +1,4 @@
-# Owner-run Windows checklist — candidate 0.4.2.dev0
+# Owner-run Windows checklist — candidate 0.4.2.dev1
 
 **All items below are pending.** Linux cloud tests do not execute this checklist. Use a disposable Windows desktop/VM, test files and a visibly identified Notepad window. Record OS build, interpreter/architecture, DPI per monitor, app version, privileges, candidate commit, expected/actual outcome and worker exit/process counts. Keep screenshots local unless the owner explicitly chooses MCP transmission.
 
@@ -65,3 +65,13 @@ Do not publish compatibility claims until the relevant items are recorded as pas
 - [ ] Inspect resource/process counts during repeated BitBlt captures and forced GetDC/CreateDC/DIB/SelectObject/BitBlt/GdiFlush failures. Confirm buffers flushed before reads and all handles released; crashed/late/hung workers reaped. Record deadline plus cleanup/scheduling overhead.
 - [ ] Verify protected/HDR/GPU surfaces and cursor inclusion against known content. Do not infer correctness from nonuniform pixels. Desktop modes can expose other apps/secrets; approve only controlled test contents and keep images local unless explicitly choosing MCP sharing.
 - [ ] Desktop capture_id is null; observation_id cannot authorize mouse/key/app-only mutations. Recapture an allowlisted app and separately authorize its mutation. No permissions extend to another app merely because it appears in desktop pixels.
+## Optional persistent owner profile (0.4.2.dev1)
+
+- [ ] In the owner input desktop, run `--permissions`: all checkboxes unchecked, app/capability dependencies explained, profile only written after explicit selections/owner confirmation. Installer `-OwnerOnboarding` must not enable persistent mode or register a secret automatically.
+- [ ] Check current-user DPAPI round-trip/tamper/wrong-user failures, owner/SYSTEM ACLs, no plaintext secret in files/logs/args/MCP/image output, no secret inherited by native child. Use synthetic keys/data; keep credential values private.
+- [ ] Verify protected root/owned dialogs cannot be enumerated/captured/mutated even with generic `python.exe` eligibility. Desktop capture must refuse while onboarding or any bridge consent dialog is open; simultaneous capture/UI startup is serialized by the named mutex.
+- [ ] Configure a host's secure environment out of band; no secret copied into chat/source/command args. Authenticate that profile, change window within approved app without another dialog, and refuse app/capability/expired/wrong-key/other-profile/reinitialize requests.
+- [ ] Close an idle connection and reconnect: credential verification and new lease/tokens, existing valid policy reused. Cancel a native operation, interrupt cleanup, kill bridge or disconnect with preview alive: running marker blocks automatic reuse. Owner local recover after inspecting state; revoke must never be overwritten by old cleanup/release.
+- [ ] Esc/F12/owner preview close permanently stops current process and pauses policy across restart; inject a pause-write failure and ensure running marker blocks reconnect. Owner Pause/Resume require fresh connection; revoked credentials cannot resume.
+- [ ] Call `bridge_health` from actual host: distinguish same-session different-desktop, unavailable input desktop/foreground, noninteractive session and owner Default context. Do not SwitchDesktop/elevate/bypass sandbox to make a check pass.
+- [ ] Fresh window tokens, identity/geometry/DPI/hit/focus and owned-key cleanup still apply to real physical input. No UIA or physical fallback on unsupported patterns. Observe real operation result before claiming success.

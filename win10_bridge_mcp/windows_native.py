@@ -181,6 +181,11 @@ BUTTON_FLAGS = {
 SESSION_STOP = threading.Event()
 _session_watcher = None
 _session_lock = threading.Lock()
+_stop_callbacks = []
+
+
+def register_stop_callback(callback):
+    _stop_callbacks.append(callback)
 
 
 def latch_stop():
@@ -188,6 +193,8 @@ def latch_stop():
     SESSION_STOP.set()
     from .viewer import close_viewer
     close_viewer()
+    for callback in tuple(_stop_callbacks):
+        callback()
 
 
 def enable_session_stop() -> None:
@@ -241,6 +248,8 @@ def process_identity(pid: int) -> tuple[str, int] | None:
 
 
 def _read_window(hwnd: int, allowed: frozenset[str]) -> Window:
+    from .owner_surface import assert_not_owner_surface
+    assert_not_owner_surface(hwnd)
     _require_physical_mapping()
     if not U.IsWindowVisible(hwnd) or U.IsIconic(hwnd):
         raise ValueError("Window missing or minimized")
@@ -325,14 +334,20 @@ def _native_job(payload, cancel):
         check_window(win, foreground=foreground)
         if _worker_deadline is not None and time.monotonic() >= _worker_deadline:
             raise PermissionError("Local consent deadline expired before semantic effect")
+        from .config import load_config
+        from .permissions import check_worker_authorization, config_fingerprint, tuple_policy
+        current = load_config()
         if authorization is not None:
-            from .config import load_config
-            current = load_config()
-            if (current[authorization["mode_key"]] != authorization["mode"] or
+            if (current.get(authorization["mode_key"], "legacy") != authorization["mode"] or
                     current["allowed"] != frozenset(authorization["allowed"])):
                 raise PermissionError("Local app-only policy changed before semantic effect")
             if "capture_modes" in authorization and current["capture_modes"] != authorization["capture_modes"]:
                 raise PermissionError("Local capture mode permission changed")
+            if "authorization_policy" in authorization and config_fingerprint(current) != tuple_policy(authorization["authorization_policy"]):
+                raise PermissionError("Local authorization policy changed before native effect")
+            check_worker_authorization(authorization.get("persistent"), current)
+        else:
+            check_worker_authorization(None, current)
     guard()
     if operation == "capture":
         result = _capture_direct(win)
@@ -401,12 +416,19 @@ def _screen_job(payload, cancel):
                 current["capture_consent_mode"] != authorization["capture_consent_mode"] or
                 current["allowed"] != frozenset(authorization["allowed"])):
             raise PermissionError("Capture permission configuration changed")
+        from .permissions import check_worker_authorization, config_fingerprint, tuple_policy
+        if "authorization_policy" in authorization and config_fingerprint(current) != tuple_policy(authorization["authorization_policy"]):
+            raise PermissionError("Local authorization policy changed during capture")
+        check_worker_authorization(authorization.get("persistent"), current)
         if screen_layout() != layout:
             raise RuntimeError("Monitor geometry/scale changed during capture; result discarded")
     guard()
-    result = _capture_screen_direct(rect, guard)
-    guard()
-    return result
+    from .owner_surface import desktop_surface_barrier
+    with desktop_surface_barrier():
+        guard()
+        result = _capture_screen_direct(rect, guard)
+        guard()
+        return result
 
 
 def capture_screen(rect, layout, *, guard, deadline, authorization):

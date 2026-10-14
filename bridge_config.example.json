@@ -4,6 +4,7 @@
   ],
   "mouse_control_mode": "disabled",
   "semantic_control_mode": "disabled",
+  "authorization_mode": "legacy",
   "notes": "Physical and semantic input stay disabled. MCP images require local data-sharing consent, scoped for at most 5 minutes. Enable desktop/monitor/region modes only if the owner accepts other visible app/sensitive content. Esc/F12/preview close permanently stops this process.",
   "capture_modes": [
     "window"

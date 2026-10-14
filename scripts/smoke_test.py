@@ -24,7 +24,8 @@ async def main():
                 expected = {'bridge_status', 'inspect_windows', 'capture_window', 'mouse_action',
                             'emergency_release', 'show_live_view', 'close_live_view', 'type_text',
                             'press_key', 'inspect_controls', 'control_action', 'open_directory',
-                            'list_drives', 'save_notepad_text', 'app_control_action', 'capture_screen', 'inspect_capture_targets'}
+                            'list_drives', 'save_notepad_text', 'app_control_action', 'capture_screen', 'inspect_capture_targets',
+                            'bridge_health', 'pause_access'}
                 assert expected == set(names)
                 print('MCP TOOLS:', ', '.join(names))
                 result = await session.call_tool('bridge_status')
@@ -32,6 +33,12 @@ async def main():
                 status = result.structuredContent
                 assert status['mouse_mode'] == 'disabled'
                 assert not status['session_armed']
+                assert status['authorization']['mode'] == 'legacy'
+                assert status['authorization']['native_chatgpt_permission_import'] is False
+                health = await session.call_tool('bridge_health')
+                assert not health.isError
+                assert health.structuredContent['desktop']['automatically_switches_desktop'] is False
+                assert health.structuredContent['desktop']['live_operations_verified'] is False
                 assert status['capture']['desktop_fallback'] is False
                 assert status['capture']['gpu_viewport_verified'] is False
                 assert status['concurrent_desktop_mouse'] is False
@@ -47,7 +54,7 @@ async def main():
                 for tool in listed.tools:
                     if tool.name in {'mouse_action', 'type_text', 'press_key', 'control_action', 'save_notepad_text', 'app_control_action', 'capture_screen'}:
                         assert tool.inputSchema['properties']['dry_run']['default'] is True
-                print('PASS: handshake, 17 schemas, physical/semantic disabled, window-only capture modes, structured errors/isError, safe defaults')
+                print('PASS: handshake, 19 schemas, physical/semantic disabled, window-only capture modes, structured errors/isError, safe defaults, context diagnostics')
 
 
 if __name__ == '__main__':

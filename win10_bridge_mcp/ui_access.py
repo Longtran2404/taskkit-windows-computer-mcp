@@ -104,6 +104,22 @@ def _dispatch(operation, hwnd, args, guard):
 def _run(operation, win, args, guard, deadline=None, authorization=None):
     from .bounded_worker import run
     from .windows_native import _native_job, latch_stop
+    from .permissions import REQUEST_LEASE
+    from .server import load_config
+    from .permissions import config_fingerprint
+    cfg = load_config()
+    if authorization is None and REQUEST_LEASE.get() is not None:
+        from .server import load_config, worker_permission
+        cfg = load_config()
+        capability = "physical_input" if operation in {"set_value", "invoke"} else "uia_read"
+        descriptor = worker_permission(cfg, capability, win.exe)
+        authorization = {"mode_key": "authorization_mode", "mode": "persistent",
+                         "allowed": sorted(cfg["allowed"]), "persistent": descriptor}
+        deadline = descriptor["deadline"]
+    if authorization is None:
+        authorization = {"mode_key": "authorization_mode", "mode": cfg.get("authorization_mode", "legacy"),
+                         "allowed": sorted(cfg["allowed"]), "persistent": None}
+    authorization = dict(authorization, authorization_policy=config_fingerprint(cfg))
     try:
         return run(_native_job, (operation, win, args, deadline, authorization), timeout=3.0,
                    guard=guard, on_unreaped=latch_stop)

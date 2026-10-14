@@ -107,3 +107,21 @@ clamp/fallback ngầm. Mode rộng dùng backend BitBlt mới, chưa kiểm Wind
 Cần chụp riêng app và consent input/semantic riêng. DPI desktop là nominal
 suy từ scale factor có nhãn nguồn; custom scaling/HDR/protected/GPU/cursor
 cần manual validation. Xem docs/CAPTURE_MODES.md.
+QUYỀN MỘT LẦN QUA ONBOARDING (ỨNG VIÊN 0.4.2.dev1)
+
+Xem docs/OWNER_PERMISSIONS.md. Mặc định authorization_mode=legacy; cài hoặc
+kết nối MCP không tự cấp quyền. Owner có thể chạy python -m win10_bridge_mcp
+--permissions để chọn app, khả năng và hạn 1/7/30 ngày một lần. Mọi ô lựa chọn
+ban đầu bỏ chọn. Grant riêng của bridge dùng credential profile qua env của
+đúng AI host, không kế thừa quyền Computer Use hay tài khoản ChatGPT.
+
+Grant hợp lệ được dùng lại qua cửa sổ và reconnect sạch, không hỏi từng thao tác.
+Token capture/identity/geometry/focus/cursor/stop vẫn được kiểm. Pause/revoke
+thực hiện trong panel local; AI chỉ có pause_access, không grant/resume.
+Crash/cancel/cleanup chưa rõ/preview còn mở khi disconnect giữ khóa chạy,
+cần owner kiểm/recover. Bản cloud không kích hoạt hoặc tạo grant trên máy anh.
+
+bridge_health phân biệt permission với Windows desktop. Cùng session/WinSta0
+nhưng CodexSandboxDesktop khác Default vẫn không thấy app owner. Phải chạy
+bridge/host từ desktop owner hợp lệ; bridge không đổi desktop, elevation,
+cài service hay mở mạng. DPAPI/ACL/UI quyền/mutex/health mới chưa kiểm live.

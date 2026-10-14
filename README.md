@@ -1,9 +1,11 @@
-# TaskKit.vn Windows Computer Bridge MCP — review candidate 0.4.2.dev0
+# TaskKit.vn Windows Computer Bridge MCP — review candidate 0.4.2.dev1
 
 **Developed by [TaskKit.vn](https://taskkit.vn) — Minh Long Tran.**
 **Được phát triển bởi TaskKit.vn — Minh Long Tran.**
 
 Local stdio MCP bridge for explicitly allowed Windows windows, with window screenshots, physical mouse/keyboard and UI Automation. This candidate is prepared for owner review. The cloud checks exercise Linux, fake adapters and process isolation; they do not certify live Windows, CAD or GPU viewport compatibility. See [review evidence](docs/REVIEW_REPORT.md), [Windows checklist](docs/WINDOWS_MANUAL_CHECKLIST.md) and [hướng dẫn tiếng Việt](HUONG_DAN_VI.txt).
+
+Optional [owner onboarding and persistent bridge-profile permissions](docs/OWNER_PERMISSIONS.md) grant selected apps/capabilities once, reuse valid policy across windows/clean reconnects, and provide local pause/revoke. This mode remains opt-in; installation/connection does not grant access. `bridge_health` distinguishes protocol connection, authenticated profile and interactive desktop readiness. Owner probes on the previous `aa446ec` revision do not validate this new permissions code.
 
 ## Install on an owner-controlled Windows desktop
 
@@ -44,6 +46,8 @@ Changing config or supplying MCP arguments does not grant input consent. Every m
 Physical `SendInput` occupies the real mouse and foreground focus. Keep hands off during the finite operation. Existing held keys/buttons cause refusal; cursor movement or loss of target identity/focus/geometry/DPI aborts. The bridge records its successful key/button downs and sends cleanup ups only for those. If a person presses the exact same key/button during an injected hold, asynchronous key-state APIs cannot distinguish ownership; this remains a limitation. Explicit emergency release sends broad best-effort ups and can affect owner-held input.
 
 ## Use and verify
+
+The per-operation/session dialogs below describe default `authorization_mode=legacy`. After explicit [persistent profile enrollment](docs/OWNER_PERMISSIONS.md), authorized scope uses that grant instead. Both modes keep target/geometry/token/input guards and dry-run defaults.
 
 1. Call `bridge_status`, then `inspect_windows`. Window IDs include PID, HWND and process creation time; IDs from older versions are incompatible.
 2. Call `capture_window(window_id)`. Review the image before choosing coordinates. The PNG goes to the connected MCP/AI client and may contain sensitive data; the local preview instead keeps its frames local.
@@ -93,6 +97,6 @@ python -m build
 
 Smoke uses a temporary disabled config and never requests native consent or desktop input. CI defines Windows/Ubuntu × Python 3.11/3.13; Windows-labelled adapter tests remain simulations unless explicitly marked manual. The shell GitHub API proxy returned HTTP 403, then a read-only GitHub connector verified [all four baseline CI jobs](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/runs/38553645474) succeeded for `92cfa9b`. The unpushed candidate has no remote CI run. Prior README live-Windows claims for v0.4.1 are historical owner reports and are not validation of this candidate.
 
-Apache-2.0; preserve LICENSE and NOTICE. Repository owner/maintainer: **Longtran2404 (Minh Long Tran / TaskKit.vn)**. Public visibility does not grant write access. This review has not pushed, opened a PR, released or posted to a forum.
+Apache-2.0; preserve LICENSE and NOTICE. Repository owner/maintainer: **Longtran2404 (Minh Long Tran / TaskKit.vn)**. Public visibility does not grant write access. Review branches are separate from main; no merge/release/forum publication is part of this candidate.
 
 [Source repository](https://github.com/Longtran2404/taskkit-windows-computer-mcp) · [TaskKit.vn](https://taskkit.vn)

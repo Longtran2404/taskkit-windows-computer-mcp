@@ -1,7 +1,9 @@
 import pytest
+import threading
 from win10_bridge_mcp import server, viewer
 from win10_bridge_mcp.policy import CaptureRegistry
 from win10_bridge_mcp.consent import ConsentGate
+from win10_bridge_mcp.permissions import PermissionRuntime
 from fakes import FakeBackend
 
 
@@ -10,6 +12,10 @@ def isolate_process_state(monkeypatch):
     viewer.STOP.clear()
     viewer._closed.clear()
     monkeypatch.setattr(viewer, '_process', None)
+    monkeypatch.setattr(viewer, '_starting_event', None)
+    monkeypatch.setattr(viewer, '_owner_stop', threading.Event())
+    monkeypatch.setattr(viewer, '_owner_stops', [])
+    monkeypatch.setattr(server, 'PERMISSIONS', PermissionRuntime())
     monkeypatch.setattr(server, 'REGISTRY', CaptureRegistry())
     monkeypatch.setattr(server, 'CONSENT', ConsentGate())
     monkeypatch.setattr(server, 'APP_CONSENT', ConsentGate('semantic_control_mode'))

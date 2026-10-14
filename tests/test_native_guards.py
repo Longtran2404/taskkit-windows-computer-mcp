@@ -20,6 +20,7 @@ def guards():
         def __init__(self): self.x=self.y=0
     namespace={'__package__': 'win10_bridge_mcp', 'SESSION_STOP': threading.Event(),
                '_worker_cancel': None, '_worker_deadline': None,
+               '_stop_callbacks': [],
                'ct': S(byref=lambda point: point), 'POINT': Point}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), 'native-guard-bodies', 'exec'), namespace)
     return namespace
