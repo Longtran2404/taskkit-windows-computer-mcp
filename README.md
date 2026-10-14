@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.2
+# TaskKit.vn Windows Computer Bridge MCP v0.4.3
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -24,7 +24,7 @@ Physical mouse/keyboard input shares the real desktop. Background PrintWindow ca
 
 ## Tools
 
-bridge_status, inspect_windows, capture_window, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+bridge_status, inspect_windows, capture_window, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
 
 - type_text supports Unicode and explicit replace_all in the focused editor.
 - press_key supports bounded keys and chords, e.g. ctrl+s, ctrl+l, alt+n, enter, tab.
@@ -45,7 +45,7 @@ Python 3.11 or later with Tkinter is supported. The installer automatically uses
 
 ## Verification
 
-16 unit tests pass on the local Windows machine (Python 3.13). Real stdio handshake lists 14 tools. Verified actual click, Vietnamese Unicode typing/replacement, ctrl+s and ctrl+home, original-window Save As (original title becomes iloveyou - Notepad without *), matching Desktop file, Explorer directory opening, and a Windows SendInput Escape pulse latching the stop and blocking subsequent typing/capture. Optional preview renders and closes cleanly with exit code 0. v0.4.2 adds 13 real stdio/input checks on a dedicated Windows fixture: left/right/middle clicks, double click, X1/X2, drag, timed hold, vertical/horizontal wheel, Ctrl+Shift drag, Vietnamese text and Esc stop. The Windows PowerShell 5.1 installer is verified with Python 3.13 and preserves the existing configuration byte-for-byte. CAD/3D GPU viewport behavior and multiple-monitor/DPI layouts remain unverified. Built-in Computer Use screenshot capture timed out on this machine; Bridge PrintWindow supplied the verified images.
+23 unit tests pass on the local Windows machine (Python 3.13). Real stdio handshake lists 18 tools. Verified actual click, Vietnamese Unicode typing/replacement, ctrl+s and ctrl+home, original-window Save As (original title becomes iloveyou - Notepad without *), matching Desktop file, Explorer directory opening, and a Windows SendInput Escape pulse latching the stop and blocking subsequent typing/capture. Optional preview renders and closes cleanly with exit code 0. v0.4.3 adds 13 real stdio/input checks on a dedicated Windows fixture: left/right/middle clicks, double click, X1/X2, drag, timed hold, vertical/horizontal wheel, Ctrl+Shift drag, Vietnamese text and Esc stop. The Windows PowerShell 5.1 installer is verified with Python 3.13 and preserves the existing configuration byte-for-byte. CAD/3D GPU viewport behavior and multiple-monitor/DPI layouts remain unverified. Built-in Computer Use screenshot capture timed out on this machine; Bridge PrintWindow supplied the verified images.
 
 Apache-2.0; preserve LICENSE and NOTICE.
 
@@ -71,3 +71,7 @@ The runner records real window events, checks Unicode text in the editor, and co
 ## Native initialization
 
 TaskKit MCP initializes its Win32 backend on startup or the first native call. It does not depend on a Node REPL variable named sky. `bridge_status` exposes backend, initialization and requires_sky for diagnostics. A `sky is not defined` message belongs to an uninitialized external Computer Use REPL session; use the native MCP tools directly, or initialize that REPL using its documented bootstrap before calling sky.
+
+## Separate mouse actions
+
+Use click_left, click_right, click_middle or scroll_mouse for one clear action. The middle button tool presses the wheel button; scroll_mouse only rotates the wheel and sends no button press/release. Advanced mouse_action retains explicit button and action enums. Cleanup releases only input actually held by this bridge; it never sends unrelated right-button-up events after a left click.

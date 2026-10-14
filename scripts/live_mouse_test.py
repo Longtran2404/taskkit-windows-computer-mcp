@@ -41,11 +41,18 @@ async def main(out):
     cases=[('left','click','left','left_down',{}),('right','click','right','right_down',{}),('middle','click','middle','middle_down',{}),('double','double_click','left','double',{}),('x1','click','x1','x_down',{}),('x2','click','x2','x_down',{}),('drag','drag','left','drag',{'end_x':ex,'end_y':ey,'duration_ms':300}),('hold','hold','left','left_up',{'duration_ms':300}),('wheel','scroll','left','wheel',{'wheel_ticks':2}),('horizontal','scroll','left','horizontal_wheel',{'wheel_ticks':2,'wheel_axis':'horizontal'}),('ctrl_shift_drag','drag','left','drag',{'end_x':ex,'end_y':ey,'duration_ms':250,'modifiers':'ctrl+shift'})]
     for label,action,button,expected,extra in cases:
      state=read_state(out);before=len(state['events']);meta=await capture()
-     await call('mouse_action',{'window_id':wid,'capture_id':meta['capture_id'],'action':action,'button':button,'x':x,'y':y,'dry_run':False,**extra})
+     tool={'left':'click_left','right':'click_right','middle':'click_middle','wheel':'scroll_mouse','horizontal':'scroll_mouse'}.get(label,'mouse_action')
+     args={'window_id':wid,'capture_id':meta['capture_id'],'x':x,'y':y,'dry_run':False,**extra}
+     if tool=='mouse_action':args.update(action=action,button=button)
+     await call(tool,args)
      for _ in range(50):
       await asyncio.sleep(.04);state=read_state(out);events=state['events'][before:]
       if any(e['kind']==expected for e in events):break
      else:raise AssertionError((label,'Expected event missing',events))
+     await asyncio.sleep(.15);events=read_state(out)['events'][before:]
+     allowed={'left':{'left_down','left_up','double','drag'},'right':{'right_down','right_up'},'middle':{'middle_down','middle_up'},'x1':{'x_down','x_up'},'x2':{'x_down','x_up'}}[button] if action!='scroll' else {'wheel','horizontal_wheel'}
+     button_events=[e for e in events if e['kind'].endswith(('_down','_up')) or e['kind'] in {'double','drag'}]
+     assert all(e['kind'] in allowed for e in button_events),(label,'Unrelated button event',button_events)
      if label in {'x1','x2'}:assert any(e['kind']=='x_down' and e['data']==(1 if label=='x1' else 2) for e in events)
      if label=='ctrl_shift_drag':assert any(e['kind']=='drag' and e['state']&5==5 for e in events)
      if label=='hold':

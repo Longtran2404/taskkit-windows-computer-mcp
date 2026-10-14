@@ -281,11 +281,24 @@ def _send(inp: INPUT) -> None:
         raise OSError(f"SendInput failed. Error={ct.get_last_error()}; UIPI may block elevated target")
 
 
+_INPUT_LOCK = threading.RLock()
+_HELD_BUTTONS: set[str] = set()
+_HELD_KEYS: set[int] = set()
+
+
 def _mouse(flags: int, data: int = 0) -> None:
     inp = INPUT(type=INPUT_MOUSE)
     inp.payload.mi.dwFlags = flags
     inp.payload.mi.mouseData = data & 0xffffffff
-    _send(inp)
+    with _INPUT_LOCK:
+        _send(inp)
+        for name, (down, up, button_data) in BUTTON_FLAGS.items():
+            if data != button_data:
+                continue
+            if flags & down:
+                _HELD_BUTTONS.add(name)
+            if flags & up:
+                _HELD_BUTTONS.discard(name)
 
 
 def _key(name: str, is_down: bool) -> None:
@@ -296,7 +309,12 @@ def _virtual_key(vk: int, is_down: bool) -> None:
     inp = INPUT(type=INPUT_KEYBOARD)
     inp.payload.ki.wVk = vk
     inp.payload.ki.dwFlags = 0 if is_down else KEYEVENTF_KEYUP
-    _send(inp)
+    with _INPUT_LOCK:
+        _send(inp)
+        if is_down:
+            _HELD_KEYS.add(vk)
+        else:
+            _HELD_KEYS.discard(vk)
 
 
 def _position(x: int, y: int) -> None:
@@ -385,13 +403,14 @@ def apply_text(win: Window, text: str, replace_all: bool = False) -> None:
 
 
 def _release_all() -> None:
-    """Best effort to avoid stuck drag and modifiers, even after exceptions."""
-    for b in ("left", "right", "middle", "x1", "x2"):
-        try: _mouse(BUTTON_FLAGS[b][1], BUTTON_FLAGS[b][2])
-        except Exception: pass
-    for mod in KEYS:
-        try: _key(mod, False)
-        except Exception: pass
+    """Release only input held by this bridge; stray right-up opens menus."""
+    with _INPUT_LOCK:
+        for b in tuple(_HELD_BUTTONS):
+            try: _mouse(BUTTON_FLAGS[b][1], BUTTON_FLAGS[b][2])
+            except Exception: pass
+        for vk in tuple(_HELD_KEYS):
+            try: _virtual_key(vk, False)
+            except Exception: pass
 
 
 def release_all() -> None:

@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import threading
+from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ImageContent, TextContent
@@ -245,16 +246,16 @@ def ask_local_consent(summary: str) -> bool:
 def mouse_action(
     window_id: str,
     capture_id: str,
-    action: str,
+    action: Literal["move", "click", "double_click", "drag", "hold", "scroll"],
     x: int,
     y: int,
-    button: str = "left",
+    button: Literal["left", "right", "middle", "x1", "x2"] = "left",
     end_x: int = -1,
     end_y: int = -1,
     duration_ms: int = 400,
     steps: int = 16,
     wheel_ticks: int = 1,
-    wheel_axis: str = "vertical",
+    wheel_axis: Literal["vertical", "horizontal"] = "vertical",
     modifiers: str = "",
     dry_run: bool = True,
 ) -> dict:
@@ -263,8 +264,8 @@ def mouse_action(
     action: move|click|double_click|drag|hold|scroll. button: left|right|middle|x1|x2.
     Drag holds the button through intermediate positions; hold has a bounded duration.
     wheel_axis: vertical|horizontal. modifiers: ctrl+shift+alt+space subset.
-    DEFAULT dry_run=True; turning it off never bypasses GUI confirmation.
-    Disabled until owner edits local config to foreground_confirm_each.
+    DEFAULT dry_run=True. Owner-authorized foreground_session has no dialogs;
+    legacy foreground_confirm_each asks for each action. Scroll sends no clicks.
     IMPORTANT: The host's real mouse and focus ARE shared while executing.
     """
     cfg = load_config()
@@ -298,6 +299,33 @@ def mouse_action(
                       duration_ms, steps, wheel_ticks, wheel_axis, mods)
         return {"performed": True, "mouse_action": action,
                 "notice": "Sent physical input; software result unverified. Capture again to verify."}
+
+
+@mcp.tool()
+def click_left(window_id: str, capture_id: str, x: int, y: int, dry_run: bool = True) -> dict:
+    """Nhấp chuột TRÁI đúng một lần; không gửi nút phải/giữa hay lăn chuột."""
+    return mouse_action(window_id, capture_id, "click", x, y, button="left", dry_run=dry_run)
+
+
+@mcp.tool()
+def click_right(window_id: str, capture_id: str, x: int, y: int, dry_run: bool = True) -> dict:
+    """Nhấp chuột PHẢI đúng một lần để mở menu ngữ cảnh; không gửi nút khác."""
+    return mouse_action(window_id, capture_id, "click", x, y, button="right", dry_run=dry_run)
+
+
+@mcp.tool()
+def click_middle(window_id: str, capture_id: str, x: int, y: int, dry_run: bool = True) -> dict:
+    """Nhấp nút GIỮA đúng một lần; đây là nhấn nút, không phải lăn chuột."""
+    return mouse_action(window_id, capture_id, "click", x, y, button="middle", dry_run=dry_run)
+
+
+@mcp.tool()
+def scroll_mouse(window_id: str, capture_id: str, x: int, y: int,
+                 wheel_ticks: int = 1, wheel_axis: Literal["vertical", "horizontal"] = "vertical",
+                 dry_run: bool = True) -> dict:
+    """Chỉ LĂN CHUỘT dọc/ngang; không gửi nhấn/nhả bất kỳ nút chuột nào."""
+    return mouse_action(window_id, capture_id, "scroll", x, y,
+                        wheel_ticks=wheel_ticks, wheel_axis=wheel_axis, dry_run=dry_run)
 
 
 @mcp.tool()

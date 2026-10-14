@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.3 - 2026-10-14
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Fix unrelated right/middle/X button-up events after every input operation. Foxit could open a context menu after a left click because the old cleanup released all buttons.
+- Track only buttons and virtual keys pressed by the bridge. Cleanup releases only held input, including after an interrupted drag.
+- Separate click_left, click_right, click_middle and scroll_mouse tools. Keep mouse_action for double click, drag, hold and X buttons; expose enum schemas.
+- 23 unit tests and 18-tool MCP handshake pass locally. Verify 13 real input cases and reject unrelated button events in the live fixture.
+
 ## 0.4.2 - 2026-10-14
 
 Developed by TaskKit.vn - Minh Long Tran.

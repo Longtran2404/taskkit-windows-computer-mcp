@@ -1,4 +1,4 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.2
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.3
 Được phát triển bởi TaskKit.vn - Minh Long Tran.
 Website: https://taskkit.vn
 
@@ -24,7 +24,7 @@ save_notepad_text lưu bản sao và kiểm tra tệp; không thay thế thao t�
 ĐÃ KIỂM TRA: 16 unit tests; 14 công cụ qua MCP stdio; nhấp chuột, gõ/thay chữ
 Việt, phím tắt; lưu chính Notepad gốc thành iloveyou.txt trên Desktop và vẫn mở;
 mở thư mục Explorer; tín hiệu Esc của Windows dừng phiên, chặn gõ/chụp tiếp.
-v0.4.2: Đã kiểm tra bộ cài PowerShell 5.1 + Python 3.13, giữ nguyên cấu hình cũ.
+v0.4.3: Đã kiểm tra bộ cài PowerShell 5.1 + Python 3.13, giữ nguyên cấu hình cũ.
 Đã qua 13 ca thao tác thật: trái/phải/giữa, nhấp đôi, X1/X2, kéo, giữ, cuộn dọc/ngang, Ctrl+Shift kéo, Unicode và Esc.
 CHƯA KIỂM TRA: hành vi trong CAD/3D GPU, nhiều màn hình hoặc tỷ lệ DPI khác.
 Bản này đã sửa mã và kiểm thử cục bộ; chưa cài đè cấu hình Codex/Revit, được công bố thành repository riêng: https://github.com/Longtran2404/taskkit-windows-computer-mcp
