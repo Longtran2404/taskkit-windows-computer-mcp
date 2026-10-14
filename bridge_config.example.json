@@ -1,0 +1,5 @@
+{
+  "allow_processes": ["notepad.exe"],
+  "mouse_control_mode": "disabled",
+  "notes": "Physical mouse requires local permission for each action. Add Revit.exe or acad.exe only after isolated testing."
+}

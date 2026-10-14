@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "win10-computer-bridge-mcp"
+version = "0.4.1"
+description = "TaskKit.vn Windows MCP bridge with screenshots, mouse, Unicode keyboard and UI Automation"
+authors = [{name = "TaskKit.vn - Minh Long Tran"}]
+requires-python = ">=3.11"
+dependencies = ["mcp>=1.28,<2", "Pillow>=10.4,<13", "comtypes>=1.4.17,<2; sys_platform == 'win32'"]
+license = {text = "Apache-2.0"}
+
+[project.urls]
+Homepage = "https://taskkit.vn"
+Source = "https://github.com/Longtran2404/taskkit-windows-computer-mcp"
+
+[project.optional-dependencies]
+test = ["pytest>=8,<10"]
+
+[tool.setuptools.packages.find]
+include = ["win10_bridge_mcp*"]

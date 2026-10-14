@@ -1,0 +1,26 @@
+"""Owner-run live MCP protocol smoke test."""
+import asyncio
+import sys
+
+from mcp import ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
+
+
+async def main():
+    p = StdioServerParameters(command=sys.executable, args=["-m", "win10_bridge_mcp"])
+    async with stdio_client(p) as (reader, writer):
+        async with ClientSession(reader, writer) as session:
+            await session.initialize()
+            listed = await session.list_tools()
+            names = sorted(t.name for t in listed.tools)
+            print("MCP TOOLS:", ", ".join(names))
+            assert {"bridge_status", "inspect_windows", "capture_window",
+                    "mouse_action", "emergency_release", "show_live_view", "close_live_view",
+                    "type_text", "press_key", "inspect_controls", "control_action",
+                    "open_directory", "list_drives", "save_notepad_text"} <= set(names)
+            result = await session.call_tool("bridge_status")
+            print("STATUS:", [getattr(c, "text", None) for c in result.content])
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
