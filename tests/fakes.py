@@ -100,6 +100,10 @@ class FakeBackend:
         self.SESSION_STOP = threading.Event()
         self.operations = []
         self.capture_hook = lambda: None
+        from win10_bridge_mcp.capture_policy import Display, DesktopLayout
+        self.layout = DesktopLayout((Display('left', Rect(-1280,0,0,720),144,144,scale_percent=150),
+                                     Display('right', Rect(0,0,1920,1080),96,96)))
+        self.screen_hook = lambda: None
 
     def enable_session_stop(self):
         pass
@@ -130,13 +134,28 @@ class FakeBackend:
         if (win.id, win.rect, win.dpi) != (self.current.id, self.current.rect, self.current.dpi):
             raise ValueError('identity/geometry/DPI changed')
 
-    def capture_window(self, win):
+    def capture_window(self, win, **kwargs):
         from PIL import Image
         from io import BytesIO
         stream = BytesIO()
         Image.new('RGB', (win.rect.width, win.rect.height), 'blue').save(stream, 'PNG')
         self.capture_hook()
+        if 'guard' in kwargs: kwargs['guard']()
         return stream.getvalue(), 'fake PrintWindow', False
+
+    def screen_layout(self):
+        self._stop_if_needed()
+        return self.layout
+
+    def capture_screen(self, rect, layout, *, guard, deadline, authorization):
+        from PIL import Image
+        from io import BytesIO
+        guard()
+        stream = BytesIO()
+        Image.new('RGB', (rect.width, rect.height), 'blue').save(stream, 'PNG')
+        self.screen_hook()
+        guard()
+        return stream.getvalue(), 'fake desktop BitBlt', False
 
     def _activate(self, win):
         self.check_window(win)

@@ -23,6 +23,7 @@ if sys.platform != "win32":
 U = ct.WinDLL("user32", use_last_error=True)
 K = ct.WinDLL("kernel32", use_last_error=True)
 G = ct.WinDLL("gdi32", use_last_error=True)
+S = ct.WinDLL("shcore", use_last_error=True)
 
 # Refuse coordinate operations unless the active thread is per-monitor aware.
 # A pre-existing incompatible host awareness must not silently virtualize pixels.
@@ -37,6 +38,8 @@ U.GetDpiForWindow.argtypes = (wt.HWND,)
 U.GetDpiForWindow.restype = wt.UINT
 K.GetDriveTypeW.argtypes = (wt.LPCWSTR,)
 K.GetDriveTypeW.restype = wt.UINT
+S.GetScaleFactorForMonitor.argtypes = (wt.HANDLE, ct.POINTER(ct.c_int))
+S.GetScaleFactorForMonitor.restype = ct.c_long
 
 
 def _require_physical_mapping():
@@ -87,6 +90,22 @@ class INPUT(ct.Structure):
 
 WINFUNCTYPE = ct.WINFUNCTYPE
 WNDENUMPROC = WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+MONITORENUMPROC = WINFUNCTYPE(wt.BOOL, wt.HANDLE, wt.HDC, ct.POINTER(RECT), wt.LPARAM)
+U.EnumDisplayMonitors.argtypes = (wt.HDC, ct.POINTER(RECT), MONITORENUMPROC, wt.LPARAM)
+U.EnumDisplayMonitors.restype = wt.BOOL
+U.GetSystemMetricsForDpi.argtypes = (ct.c_int, wt.UINT)
+U.GetSystemMetricsForDpi.restype = ct.c_int
+U.GetDC.argtypes = (wt.HWND,)
+U.GetDC.restype = wt.HDC
+U.ReleaseDC.argtypes = (wt.HWND, wt.HDC)
+U.ReleaseDC.restype = ct.c_int
+G.BitBlt.argtypes = (wt.HDC, ct.c_int, ct.c_int, ct.c_int, ct.c_int,
+                     wt.HDC, ct.c_int, ct.c_int, wt.DWORD)
+G.BitBlt.restype = wt.BOOL
+G.GdiFlush.argtypes = ()
+G.GdiFlush.restype = wt.BOOL
+G.GetMapMode.argtypes = (wt.HDC,)
+G.GetMapMode.restype = ct.c_int
 
 U.EnumWindows.argtypes = (WNDENUMPROC, wt.LPARAM)
 U.EnumWindows.restype = wt.BOOL
@@ -312,6 +331,8 @@ def _native_job(payload, cancel):
             if (current[authorization["mode_key"]] != authorization["mode"] or
                     current["allowed"] != frozenset(authorization["allowed"])):
                 raise PermissionError("Local app-only policy changed before semantic effect")
+            if "capture_modes" in authorization and current["capture_modes"] != authorization["capture_modes"]:
+                raise PermissionError("Local capture mode permission changed")
     guard()
     if operation == "capture":
         result = _capture_direct(win)
@@ -325,14 +346,127 @@ def _native_job(payload, cancel):
     return result
 
 
-def capture_window(win: Window):
+def capture_window(win: Window, *, guard=None, deadline=None, authorization=None):
     from .bounded_worker import run
     try:
-        return run(_native_job, ("capture", win, (), None), timeout=3.0,
-                   guard=lambda: check_window(win), on_unreaped=latch_stop)
+        return run(_native_job, ("capture", win, (), deadline, authorization), timeout=3.0,
+                   guard=guard or (lambda: check_window(win)), on_unreaped=latch_stop)
     except InterruptedError:
         latch_stop()
         raise
+
+
+def screen_layout():
+    from .capture_policy import Display, DesktopLayout
+    _stop_if_needed()
+    _require_physical_mapping()
+    displays, errors = [], []
+    def collect(handle, dc, rect_pointer, data):
+        try:
+            _stop_if_needed()
+            r = rect_pointer.contents
+            rect = Rect(r.left, r.top, r.right, r.bottom)
+            factor = ct.c_int()
+            if S.GetScaleFactorForMonitor(handle, ct.byref(factor)) != 0 or factor.value <= 0:
+                raise RuntimeError("Monitor scale factor unavailable; refusing mapping")
+            nominal_dpi = round(96 * factor.value / 100)
+            displays.append(Display(f"monitor:{handle:x}", rect, nominal_dpi, nominal_dpi,
+                                    "derived_from_scale_factor", factor.value))
+            return True
+        except Exception as exc:
+            errors.append(exc)
+            return False
+    success = U.EnumDisplayMonitors(None, None, MONITORENUMPROC(collect), 0)
+    if errors:
+        raise errors[0]
+    if not success:
+        raise OSError("EnumDisplayMonitors failed")
+    layout = DesktopLayout(tuple(sorted(displays, key=lambda d: d.id)))
+    x, y, width, height = (U.GetSystemMetricsForDpi(i, 96) for i in (76, 77, 78, 79))
+    if layout.bounds != Rect(x, y, x + width, y + height):
+        raise RuntimeError("Display layout changed/inconsistent; inspect capture targets again")
+    _stop_if_needed()
+    return layout
+
+
+def _screen_job(payload, cancel):
+    global _worker_cancel, _worker_deadline
+    _worker_cancel = cancel
+    rect, layout, _worker_deadline, authorization = payload
+    def guard():
+        from .config import load_config
+        current = load_config()
+        _stop_if_needed()
+        if (current["capture_modes"] != authorization["capture_modes"] or
+                current["capture_consent_mode"] != authorization["capture_consent_mode"] or
+                current["allowed"] != frozenset(authorization["allowed"])):
+            raise PermissionError("Capture permission configuration changed")
+        if screen_layout() != layout:
+            raise RuntimeError("Monitor geometry/scale changed during capture; result discarded")
+    guard()
+    result = _capture_screen_direct(rect, guard)
+    guard()
+    return result
+
+
+def capture_screen(rect, layout, *, guard, deadline, authorization):
+    from .bounded_worker import run
+    try:
+        return run(_screen_job, (rect, layout, deadline, authorization), timeout=3.0,
+                   guard=guard, on_unreaped=latch_stop)
+    except InterruptedError:
+        latch_stop()
+        raise
+
+
+def _capture_screen_direct(rect, guard):
+    from .capture_policy import validate_pixels
+    validate_pixels(rect)
+    _require_physical_mapping()
+    guard()
+    desktop = U.GetDC(None)
+    if not desktop:
+        raise OSError("Desktop GetDC failed")
+    memdc = bitmap = previous = None
+    try:
+        memdc = G.CreateCompatibleDC(desktop)
+        if not memdc:
+            raise OSError("CreateCompatibleDC failed")
+        if G.GetMapMode(desktop) != 1 or G.GetMapMode(memdc) != 1:
+            raise RuntimeError("GDI DC is not MM_TEXT; refusing physical-pixel mapping")
+        info = BITMAPINFO()
+        info.bmiHeader.biSize = ct.sizeof(BITMAPINFOHEADER)
+        info.bmiHeader.biWidth, info.bmiHeader.biHeight = rect.width, -rect.height
+        info.bmiHeader.biPlanes, info.bmiHeader.biBitCount = 1, 32
+        pixels = ct.c_void_p()
+        bitmap = G.CreateDIBSection(memdc, ct.byref(info), 0, ct.byref(pixels), None, 0)
+        if not bitmap or not pixels.value:
+            raise OSError("CreateDIBSection failed")
+        previous = G.SelectObject(memdc, bitmap)
+        if not previous or previous == ct.c_void_p(-1).value:
+            previous = None
+            raise OSError("SelectObject failed")
+        guard()
+        if not G.BitBlt(memdc, 0, 0, rect.width, rect.height, desktop, rect.left, rect.top, 0x00CC0020 | 0x40000000):
+            raise OSError("Desktop BitBlt failed; no backend fallback")
+        if not G.GdiFlush():
+            raise OSError("GdiFlush failed; no pixels accepted")
+        guard()
+        image = PILImage.frombytes("RGBA", (rect.width, rect.height),
+                                   ct.string_at(pixels, rect.width * rect.height * 4), "raw", "BGRA").convert("RGB")
+        possibly_uniform = all(hi - lo < 8 for lo, hi in image.resize((64, 64)).getextrema())
+        output = BytesIO()
+        image.save(output, "PNG", optimize=True)
+        guard()
+        return output.getvalue(), "GDI desktop BitBlt", possibly_uniform
+    finally:
+        if previous:
+            G.SelectObject(memdc, previous)
+        if bitmap:
+            G.DeleteObject(bitmap)
+        if memdc:
+            G.DeleteDC(memdc)
+        U.ReleaseDC(None, desktop)
 
 
 def _capture_direct(win: Window) -> tuple[bytes, str, bool]:
@@ -360,10 +494,13 @@ def _capture_direct(win: Window) -> tuple[bytes, str, bool]:
         if not bitmap or not pixelptr.value:
             raise OSError("CreateDIBSection failed")
         prev = G.SelectObject(memdc, bitmap)
-        if not prev:
+        if not prev or prev == ct.c_void_p(-1).value:
+            prev = None
             raise OSError("SelectObject failed")
         render_method = ""
         for flag, label in [(2, "PrintWindow full"), (0, "PrintWindow basic")]:
+            if not G.GdiFlush():
+                raise OSError("GdiFlush failed before DIB access")
             ct.memset(pixelptr, 0, win.rect.width * win.rect.height * 4)
             check_window(win)
             if U.PrintWindow(win.hwnd, memdc, flag):
@@ -371,6 +508,8 @@ def _capture_direct(win: Window) -> tuple[bytes, str, bool]:
                 break
         if not render_method:
             raise RuntimeError("PrintWindow failed for this app. GPU viewport may be unsupported.")
+        if not G.GdiFlush():
+            raise OSError("GdiFlush failed; no pixels accepted")
         pixels = ct.string_at(pixelptr, win.rect.width * win.rect.height * 4)
         im = PILImage.frombytes("RGBA", (win.rect.width, win.rect.height), pixels, "raw", "BGRA")
         rgb = im.convert("RGB")
@@ -445,7 +584,7 @@ def _stop_if_needed() -> None:
     if SESSION_STOP.is_set() or (_worker_cancel is not None and _worker_cancel.is_set()):
         raise InterruptedError("Permanent Esc/F12/preview stop; restart locally to resume")
     if _worker_deadline is not None and time.monotonic() >= _worker_deadline:
-        raise PermissionError("Local consent expired during UIA operation")
+        raise PermissionError("Local consent expired during native operation")
 
 
 def _interruptible_wait(seconds, win=None):

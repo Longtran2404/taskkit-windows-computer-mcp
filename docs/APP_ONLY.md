@@ -8,7 +8,7 @@
 | `control_action` | Existing foreground UIA SetValue/Invoke | Requests foreground; UIA operation | `foreground_session` + local owner consent |
 | `app_control_action` | Supported control patterns in the selected window | No SetCursorPos/SendInput/SetForegroundWindow/SetFocus or PostMessage fallback | Separate `semantic_control_mode` + local owner consent |
 
-The local consent dialog itself requires owner interaction. An application/provider can choose to bring its own window forward, open a dialog or otherwise change focus as a result of Invoke/Selection. The bridge does not force or fake background behavior when the provider requires focus. Keep physical mode disabled for app-only use:
+The local consent dialog itself requires owner interaction. An application/provider can choose to bring its own window forward, open a dialog or cause its own cursor/focus side effects as a result of Invoke/Selection. The bridge does not force or fake background behavior when the provider requires focus. Keep physical mode disabled for app-only use:
 
 ```json
 {
@@ -22,7 +22,7 @@ The local consent dialog itself requires owner interaction. An application/provi
 
 ## Workflow
 
-1. Inspect allowed windows and choose the current ID. Capture it and visually verify the target.
+1. Inspect allowed windows and choose the current ID. Capture it with the separate local data-sharing consent and visually verify the target. Screenshot permission does not arm app-only mutation consent. See [capture modes](CAPTURE_MODES.md).
 2. `inspect_controls(window_id)` lists non-password controls from the selected process with `app_only_patterns`. This advertises provider capabilities; each execution resolves them again.
 3. Use a unique, nonempty `automation_id`, the fresh one-use `capture_id` and `dry_run=true` to review the request. Dry run does not mutate, consume the token or arm consent; it reports `pattern_verified=false`.
 4. Enable the semantic mode locally. Run with `dry_run=false`, approve the local dialog and verify resulting app/UI state.

@@ -8,7 +8,7 @@ Ngày kiểm: 2026-10-14. Bản source candidate: **0.4.2.dev0**. Đây là bả
 - HEAD ban đầu đúng `92cfa9b40c33e04f49ab01d7df5b947cd552a8f7`; nhánh `work`, working tree sạch. Không có thay đổi có sẵn để ghi đè; không stash/reset/clean.
 - Đã đọc và tuân AGENTS.md. Giữ Apache-2.0, LICENSE, NOTICE, TaskKit.vn và attribution Minh Long Tran. Mọi thay đổi trên nhánh local `review/safety-reliability-20261014`.
 - Baseline Linux Python 3.12.14: **12 passed, 4 skipped**, MCP stdio đủ 14 tools/status. Ban đầu thiếu pytest; đã tạo venv riêng ngoài repo và cài dependencies, không dùng elevation.
-- `.github/workflows/tests.yml` định nghĩa Windows/Ubuntu × Python 3.11/3.13. Kiểm API GitHub để xác nhận lại CI bị proxy HTTP 403; không dùng nhận định “CI đang xanh” làm bằng chứng xác minh độc lập.
+- `.github/workflows/tests.yml` định nghĩa Windows/Ubuntu × Python 3.11/3.13. API từ shell bị proxy HTTP 403; sau đó connector GitHub chỉ đọc xác nhận [run 38553645474](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/runs/38553645474) đúng base `92cfa9b`: cả 4 jobs/install/pytest/smoke success. Đây chỉ là baseline, không validation Windows cho candidate chưa push.
 
 ## Thay đổi
 
@@ -29,23 +29,31 @@ Ngày kiểm: 2026-10-14. Bản source candidate: **0.4.2.dev0**. Đây là bả
 
 Đã triển khai tool `app_control_action` với Value/Invoke/SelectionItem/Scroll, consent riêng default-disabled và scoped theo một cửa sổ tối đa 5 phút. Physical mode có thể giữ disabled. Không có SetCursorPos/SendInput/SetForegroundWindow/SetFocus/PostMessage fallback. Current UIA root/ancestry/PID/bounds/password được recheck; child guard đọc lại semantic mode/allowlist và deadline ngay trước effect. Unsupported patterns trả `unsupported_control`/isError. Xem [APP_ONLY.md](APP_ONLY.md) cho cách dùng và ranh giới.
 
-Foundation commit local `9e0289e` đã có 150 passed/2 skipped trên mỗi Python3.12/3.13 (3 lần), smoke14 tools. App-only được tách thành commit tiếp theo. Review độc lập lần hai: 190 passed/2 skipped trên cả hai interpreter và smoke15 tools. Live providers có thể đổi UI/focus; tree checks không atomic, downstream effect sau cancellation vẫn có thể xảy ra. Chưa tích hợp API CAD/Blender.
+Foundation commit local `9e0289e` đã có 150 passed/2 skipped trên mỗi Python 3.12/3.13 (3 lần), smoke 14 tools. App-only được tách thành commit tiếp theo. Review độc lập lần hai: 190 passed/2 skipped trên cả hai interpreter và smoke 15 tools. Live providers có thể đổi UI/focus; tree checks không atomic, downstream effect sau cancellation vẫn có thể xảy ra. Chưa tích hợp API CAD/Blender.
+
+## Capture modes bổ sung theo yêu cầu mới
+
+Đã triển khai `inspect_capture_targets` và `capture_screen`: window/app, monitor, virtual_desktop/fullscreen và region. Chọn mode rõ, local capture_modes eligibility (default window-only) và native local data-sharing consent theo scope tối đa 5 phút; legacy capture_window cũng tuân consent này. Desktop scopes cảnh báo other apps/sensitive data/no redaction, không có token input. Không tự mở rộng mode, downscale hay fallback từ PrintWindow sang desktop.
+
+Desktop backend GDI BitBlt là mã mới chưa kiểm Windows thật; per-monitor awareness/MM_TEXT, rect/scale snapshot, GetSystemMetricsForDpi crosscheck, checked GdiFlush và resource cleanup được fake-tested. DPI desktop nominal suy từ scale factor và có nhãn, không claim exact measured/custom DPI. Xem [CAPTURE_MODES.md](CAPTURE_MODES.md). Capture feature tách thành commit thứ ba sau foundation `9e0289e` và app-only `082ab40`.
+
+Review độc lập lần ba: full Linux 3.12 **246 passed/2 skipped**, Linux 3.13 **59 capture/guard/resource fake tests passed**, smoke 17 tools và diff-check sạch. Final regression dưới đây chạy full suite trên cả hai interpreter. Không có ảnh của người dùng được chụp/gửi trong môi trường Linux; mọi ảnh test là synthetic.
 
 ## Kết quả kiểm
 
 | Kiểm tra | Kết quả | Loại bằng chứng |
 | --- | --- | --- |
 | Baseline pytest Python 3.12.14 | 12 passed, 4 skipped | Linux thật; backend giả lập/skip Win32 |
-| Regression Python 3.12.14, 3 lần | 190 passed, 2 skipped mỗi lần | Linux thật; fake adapters/Win32 guard bodies, real disposable subprocesses |
-| Regression Python 3.13.5, 3 lần | 190 passed, 2 skipped mỗi lần | Linux thật; cùng giới hạn backend |
-| Stdio smoke trên 3.12 và 3.13 | PASS, 15 tools | Process stdio MCP thật; disabled/unarmed status, schema/dry-run defaults, structured error + isError; không capture/input thật |
+| Regression Python 3.12.14, 3 lần | 246 passed, 2 skipped mỗi lần | Linux thật; fake adapters/Win32/GDI bodies, real disposable subprocesses |
+| Regression Python 3.13.5, 3 lần | 246 passed, 2 skipped mỗi lần | Linux thật; cùng giới hạn backend |
+| Stdio smoke trên 3.12 và 3.13 | PASS, 17 tools | Process stdio MCP thật; disabled/unarmed status, schema/dry-run defaults, structured error + isError; không capture/input thật |
 | Independent read-only review | Đã hoàn tất; snapshot review chạy 136 passed, 2 skipped + smoke | Agent riêng, không edit/input; phát hiện stop propagation, preview races, late decode, key-up delay, DPI/path/license gaps đã sửa và thêm regression |
 | Build sdist/wheel, inventory LICENSE/NOTICE/source | PASS | Linux packaging thật; source gồm tests/fakes/scripts/docs |
 | Install wheel ngoài checkout, import + stdio smoke | PASS | Linux cài wheel thật trong venv riêng; không editable fallback |
 | Dependency checks, compileall, diff whitespace | PASS | Kiểm tĩnh/packaging Linux |
 | Windows DLL ABI / Win32 Esc adapter | 2 skipped | Cần Windows; test adapter Esc khi chạy Windows vẫn là mock |
 | Windows desktop/COM/PrintWindow/SendInput/Tkinter/PowerShell | Chưa chạy | Không có Windows desktop/PowerShell trong cloud |
-| Python 3.11 và matrix CI remote | Chưa chạy/xác minh lại | Không có interpreter 3.11; GitHub API proxy 403 |
+| Python 3.11 candidate / remote CI baseline | Candidate 3.11 chưa chạy; baseline 4 jobs verified success | Không có interpreter 3.11 local; read-only connector xác minh run 38553645474 cho `92cfa9b` |
 | CAD/GPU/WGC | Chưa kiểm, WGC chưa triển khai | Không cấp claim tương thích |
 
 Dependencies được cài trong venv review: MCP 1.30.0, Pillow 12.3.0, pytest 9.1.1. Các bản cụ thể và output đầy đủ nằm trong artifact logs/snapshot. Bảng regression là kết quả cuối cùng của các lệnh được ghi log; xem artifact manifest cho commit và hashes.
@@ -64,11 +72,12 @@ Các test bao phủ clamp, focus/overlay, stop mọi guard stage của mouse/cho
 6. UIA đã dispatch có thể tiếp tục tác động app sau worker timeout/kill; file write/input cũng có thể hoàn thành một phần trước stop. Error báo effects chưa được xác minh; inspect UI/file trước retry. Không dùng invoke/input success làm completion proof.
 7. Deadline không phải realtime guarantee: có terminate/kill cleanup tối đa 0.5 giây và OS scheduling/process-start/guard overhead. Cold COM/module generation hoặc frame lớn có thể fail an toàn với deadline 3 giây.
 8. Canonical drive/path checks không phải filesystem sandbox; junction/reparse có race và filesystem I/O có thể chậm. Matching existing files chỉ được đọc; differing files/exclusive-create winners được bảo toàn. UIA save là bản sao, không save cửa sổ gốc.
-9. Wheel Linux smoke xác nhận package/protocol/dependencies, không thể xác nhận comtypes Windows dependency hoặc Windows installer.
+9. Desktop BitBlt mới chưa kiểm live Windows: protected/HDR/accelerated surfaces, cursor inclusion, monitor/scale mapping và resource/cold-start thực tế cần manual. Nominal scale-derived DPI không đảm bảo mọi custom DPI change đều phân biệt được. Desktop ảnh có thể chứa app ngoài allowlist; cần riêng capture scope consent, không cấp input.
+10. Wheel Linux smoke xác nhận package/protocol/dependencies, không thể xác nhận comtypes Windows dependency hoặc Windows installer.
 
 ## Bằng chứng và duyệt
 
-Thư mục artifact: `/workspace/taskkit-review-artifacts`. Có `review.patch`, `source.zip`, `source.tar.gz`, packages/wheel/sdist, `manifest.json`, `SHA256SUMS`, report/checklist bản copy và logs baseline/regression/smoke/build/install/dependency. Commit local và base commit được ghi trong manifest; patch áp dụng từ base được kiểm bằng một checkout tách biệt. Source archives tạo từ commit, không chứa venv, dependencies, config cá nhân, credential, screenshot hay user documents.
+Thư mục artifact: `/workspace/taskkit-review-artifacts`. Có `review.patch`, `source.zip`, `source.tar.gz`, packages/wheel/sdist, `manifest.json`, `SHA256SUMS`, report/checklist bản copy và logs baseline/regression/smoke/build/install/dependency và ci-verified.json. Commit local và base commit được ghi trong manifest; patch áp dụng từ base được kiểm bằng một checkout tách biệt. Source archives tạo từ commit, không chứa venv, dependencies, config cá nhân, credential, screenshot hay user documents.
 
 Reproduce trong checkout source: `python -m pip install -e ".[test]"`, `python -m pytest -q`, `python scripts/smoke_test.py`, `python -m build`. Chạy Windows checklist với chủ máy trước khi cập nhật GitHub/chia sẻ diễn đàn. Không cần duyệt để tiếp tục đọc/test Linux; hành động xuất bản vẫn chưa được thực hiện.
 

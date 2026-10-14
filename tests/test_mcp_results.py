@@ -13,7 +13,7 @@ from win10_bridge_mcp import server
     (OSError('capture failed'), 'native_or_file_error')])
 def test_mcp_capture_structured_error_and_no_image_token(bridge, exception, code):
     native, _=bridge
-    def fail(win): raise exception
+    def fail(win, **kwargs): raise exception
     native.capture_window=fail
     result=asyncio.run(server.mcp.call_tool('capture_window', {'window_id': native.current.id}))
     assert isinstance(result, CallToolResult)

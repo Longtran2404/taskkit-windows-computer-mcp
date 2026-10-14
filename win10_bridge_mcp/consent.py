@@ -11,7 +11,8 @@ class ConsentGate:
         self.mode_key = mode_key
 
     def fingerprint(self, cfg):
-        return cfg[self.mode_key], tuple(sorted(cfg["allowed"])), cfg.get("consent_window_id")
+        return (cfg[self.mode_key], tuple(sorted(cfg["allowed"])),
+                cfg.get("consent_window_id"), cfg.get("consent_scope_key"))
 
     def armed(self, cfg):
         return self.scope == self.fingerprint(cfg) and time.monotonic() < self.expires

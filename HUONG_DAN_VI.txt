@@ -86,3 +86,24 @@ Worker có deadline/stop; guard kiểm PID/bounds/password và root/ancestry hi�
 tại. Control không hỗ trợ trả unsupported_control/isError, không chuyển input.
 Đã có regression fake chứng minh không gọi SetCursorPos/SendInput/foreground
 trong đường semantic. Xem docs/APP_ONLY.md để xem đã triển khai và giới hạn.
+
+CHỌN MODE CHỤP — ĐÃ TRIỂN KHAI, CHƯA CHẠY WINDOWS THẬT
+inspect_capture_targets: chỉ đọc cửa sổ/monitor/bounds/scale, không gửi pixels.
+capture_screen mặc định dry_run=true; chọn mode rõ:
+- window: một window_id allowlisted (app capture), PrintWindow.
+- monitor: toàn một monitor_id.
+- virtual_desktop: fullscreen toàn bộ monitors, gồm negative origins/gaps.
+- region: left/top/width/height tuyệt đối theo pixel vật lý desktop.
+Mặc định capture_modes=["window"]. Chủ máy bật các mode cần dùng trong config;
+điều đó CHƯA cho phép chia sẻ ảnh. Cần native local consent trước khi gửi ảnh
+MCP, kể cả capture_window cũ. capture_consent_mode="session" cho đúng phạm vi
+đã chọn tối đa 5 phút; "confirm_each" xác nhận từng ảnh; [] tắt truyền ảnh.
+Desktop/monitor/region có thể chứa app khác và dữ liệu nhạy cảm; không tự
+redact. Đổi mode/region/layout hoặc hết grant cần đồng ý mới. AI không tự
+approve. Preview cục bộ không dùng quyền chia sẻ ảnh MCP.
+Mọi mode có stop/deadline 3 giây và giới hạn 12 triệu pixels, không downscale/
+clamp/fallback ngầm. Mode rộng dùng backend BitBlt mới, chưa kiểm Windows thật.
+Ảnh desktop KHÔNG cấp input ticket: observation_id không dùng để click app.
+Cần chụp riêng app và consent input/semantic riêng. DPI desktop là nominal
+suy từ scale factor có nhãn nguồn; custom scaling/HDR/protected/GPU/cursor
+cần manual validation. Xem docs/CAPTURE_MODES.md.

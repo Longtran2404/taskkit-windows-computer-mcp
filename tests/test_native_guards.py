@@ -46,3 +46,41 @@ def test_native_stop_closes_shared_preview_and_persists(key):
     assert viewer._closed.is_set()
     n['U'].GetAsyncKeyState=lambda _: 0
     with pytest.raises(InterruptedError): n['_stop_if_needed']()
+
+
+@pytest.mark.parametrize('flush_ok',[True,False])
+def test_native_desktop_flush_precedes_read_and_resources_cleaned(flush_ok):
+    from io import BytesIO
+    from PIL import Image
+    from win10_bridge_mcp.policy import Rect
+    source=Path(importlib.util.find_spec('win10_bridge_mcp.windows_native').origin).read_text()
+    tree=ast.parse(source)
+    nodes=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_capture_screen_direct']
+    trace=[]
+    class Pointer:
+        def __init__(self,value=None): self.value=value
+    def bitmap(dc,info,usage,pointer,section,offset): pointer.value=123; return 3
+    def flush(): trace.append('flush'); return flush_ok
+    def read(pointer,length):
+        assert 'flush' in trace,'DIB memory read before GDI flush'
+        trace.append('read')
+        return b'\xff\x00\x00\x00'*4
+    u=S(GetDC=lambda hwnd:1,ReleaseDC=lambda hwnd,dc:trace.append('release_desktop'))
+    g=S(CreateCompatibleDC=lambda dc:2,GetMapMode=lambda dc:1,CreateDIBSection=bitmap,
+        SelectObject=lambda dc,bitmap:4,BitBlt=lambda *args:trace.append('blit') or True,
+        GdiFlush=flush,DeleteObject=lambda bitmap:trace.append('delete_bitmap'),
+        DeleteDC=lambda dc:trace.append('delete_dc'))
+    namespace={'__package__':'win10_bridge_mcp','ct':S(sizeof=lambda cls:40,c_void_p=Pointer,
+                byref=lambda obj:obj,string_at=read), 'BITMAPINFO':lambda:S(bmiHeader=S()),
+                'BITMAPINFOHEADER':object,'U':u,'G':g,'PILImage':Image,'BytesIO':BytesIO,
+                '_require_physical_mapping':lambda:None}
+    exec(compile(ast.Module(body=nodes,type_ignores=[]),'native-desktop-body','exec'),namespace)
+    if flush_ok:
+        png,method,blank=namespace['_capture_screen_direct'](Rect(-2,0,0,2),lambda:None)
+        assert png.startswith(b'\x89PNG') and method=='GDI desktop BitBlt'
+        assert trace.index('flush') < trace.index('read')
+    else:
+        with pytest.raises(OSError,match='GdiFlush'):
+            namespace['_capture_screen_direct'](Rect(-2,0,0,2),lambda:None)
+        assert 'read' not in trace
+    assert trace[-3:]==['delete_bitmap','delete_dc','release_desktop']

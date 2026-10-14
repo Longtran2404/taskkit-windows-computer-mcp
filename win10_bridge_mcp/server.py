@@ -12,6 +12,7 @@ from pathlib import Path
 import threading
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 from functools import wraps
 
@@ -21,6 +22,7 @@ from mcp.types import CallToolResult, ImageContent, TextContent
 from .policy import CaptureRegistry, validate_mouse, UnsupportedControlError
 from .config import load_config
 from .consent import ConsentGate
+from .capture_policy import CAPTURE_MODES, choose_region, rect_data, validate_pixels
 
 APP_NAME = "TaskKit.vn Windows Computer Bridge MCP"
 mcp = FastMCP(APP_NAME)
@@ -28,6 +30,7 @@ REGISTRY = CaptureRegistry()
 MOUSE_MUTEX = threading.RLock()
 CONSENT = ConsentGate()
 APP_CONSENT = ConsentGate("semantic_control_mode")
+CAPTURE_CONSENT = ConsentGate("capture_consent_mode")
 
 
 ERROR_CODES = {InterruptedError: "stop_or_intervention", PermissionError: "permission_denied",
@@ -118,14 +121,26 @@ def bridge_status() -> dict:
     is_stopped = stopped() or bool(native and native.SESSION_STOP.is_set())
     app_scope = dict(cfg, consent_window_id=APP_CONSENT.scope[2]) if APP_CONSENT.scope else cfg
     app_armed = APP_CONSENT.armed(app_scope) and not is_stopped
+    capture_scope = dict(cfg, consent_scope_key=CAPTURE_CONSENT.scope[3]) if CAPTURE_CONSENT.scope else cfg
+    stored_capture_scope = json.loads(CAPTURE_CONSENT.scope[3]) if CAPTURE_CONSENT.scope else None
+    capture_armed = (CAPTURE_CONSENT.armed(capture_scope) and not is_stopped and
+                     bool(stored_capture_scope and stored_capture_scope[2] == cfg["capture_modes"]))
     return {
         "developed_by": "TaskKit.vn - Minh Long Tran", "homepage": "https://taskkit.vn",
         "platform": sys.platform, "windows_available": available,
-        "capture": {"backend": "PrintWindow", "deadline_seconds": 3,
+        "capture": {"backend": "explicit_by_mode", "deadline_seconds": 3,
+                    "backends_by_mode": {"window": "PrintWindow", "monitor": "GDI BitBlt",
+                                         "virtual_desktop": "GDI BitBlt", "region": "GDI BitBlt"},
                     "status": "best_effort_unverified" if available else "unavailable",
                     "gpu_viewport_verified": False, "desktop_fallback": False,
-                    "mapping": "outer-window physical pixels; per-monitor DPI required",
-                    "windows_graphics_capture": "not_implemented"},
+                    "mapping": "window: outer-window pixels; desktop modes: absolute physical bounds; per-monitor awareness required",
+                    "windows_graphics_capture": "not_implemented",
+                    "enabled_modes": cfg["capture_modes"], "available_modes": sorted(CAPTURE_MODES),
+                    "consent_mode": cfg["capture_consent_mode"],
+                    "consent_session_armed": capture_armed,
+                    "consent_remaining_seconds": round(max(0, CAPTURE_CONSENT.expires - time.monotonic()), 1) if capture_armed else 0,
+                    "consent_scope": stored_capture_scope[:2] if capture_armed else None,
+                    "desktop_modes_issue_input_tokens": False},
         "uia_deadline_seconds": 3,
         "mouse_mode": cfg["mouse_control_mode"],
         "session_armed": CONSENT.armed(cfg) and not is_stopped,
@@ -394,10 +409,18 @@ def capture_window(window_id: str) -> CallToolResult:
     native = running()
     with MOUSE_MUTEX:
         win = native.get_window(window_id, cfg["allowed"])
+        validate_pixels(win.rect)
+        scope, deadline = authorize_capture(cfg, native, "window", win.id,
+            f"Allowlisted window {win.exe} | {win.title[:80]} | {win.id}")
+        guard = lambda: (capture_read_guard(cfg, native, scope, deadline), native.check_window(win))
+        guard()
         started = time.monotonic()
-        png, method, blank = native.capture_window(win)
+        png, method, blank = native.capture_window(win, guard=guard, deadline=deadline,
+            authorization={"mode_key": "capture_consent_mode", "mode": cfg["capture_consent_mode"],
+                           "allowed": sorted(cfg["allowed"]), "capture_modes": cfg["capture_modes"]})
         native.check_window(win)
         running(native)
+        guard()
         if blank:
             raise RuntimeError("Uniform/possibly blank image; no click token issued")
         from io import BytesIO
@@ -409,6 +432,7 @@ def capture_window(window_id: str) -> CallToolResult:
         running(native)
         t = REGISTRY.issue(win.id, win.rect, method, dpi=win.dpi)
         info = {"window_id": win.id, "capture_id": t.token,
+                "mode": "window", "input_authorization": "window_token_only; separate input consent required",
                 "width": win.rect.width, "height": win.rect.height, "dpi": win.dpi,
                 "origin": [win.rect.left, win.rect.top], "mapping": "outer-window physical pixels",
                 "method": method, "status": "best_effort_unverified", "nonuniform": True,
@@ -423,9 +447,121 @@ def capture_window(window_id: str) -> CallToolResult:
         try:
             native.check_window(win)
             running(native)
+            guard()
         except Exception:
             REGISTRY.consume(t.token)
             raise
+        return result
+
+
+def authorize_capture(cfg, native, mode, target_key, description):
+    running(native)
+    if mode not in cfg["capture_modes"]:
+        raise PermissionError("Capture mode disabled in local capture_modes; no wider-scope fallback")
+    scope = dict(cfg, consent_scope_key=json.dumps([mode, target_key, cfg["capture_modes"]], sort_keys=True))
+    summary = (f"Capture and SEND an image to the connected MCP/AI client.\nMode: {mode}\n{description}\n"
+               "This is data sharing, not input permission. No physical input or desktop fallback.\n"
+               "Images may contain private documents/visible secrets; no automatic redaction.\n")
+    if mode != "window":
+        summary += "WARNING: this scope includes other applications and sensitive visible contents. No automatic redaction.\n"
+    if cfg["capture_consent_mode"] == "session":
+        CAPTURE_CONSENT.require(scope, ask_local_consent, lambda: running(native),
+                                description=summary + "Authorize repeated capture of this scope for up to 5 minutes?")
+        deadline = CAPTURE_CONSENT.expires
+    else:
+        if not ask_local_consent(summary + "Authorize this one capture?"):
+            raise PermissionError("Owner declined capture/data-sharing consent")
+        deadline = time.monotonic() + 10
+    capture_read_guard(cfg, native, scope, deadline)
+    return scope, deadline
+
+
+def capture_read_guard(cfg, native, scope, deadline):
+    running(native)
+    current = load_config()
+    if (current["capture_modes"] != cfg["capture_modes"] or current["capture_consent_mode"] != cfg["capture_consent_mode"] or
+            current["allowed"] != cfg["allowed"] or time.monotonic() >= deadline):
+        raise PermissionError("Capture scope/consent expired or configuration changed")
+    if cfg["capture_consent_mode"] == "session":
+        CAPTURE_CONSENT.check(scope)
+
+
+@tool()
+def inspect_capture_targets() -> dict:
+    """Read allowed windows/monitor geometry and enabled modes, without images or consent arming."""
+    cfg = load_config()
+    native = running()
+    layout = native.screen_layout()
+    windows = native.enumerate_windows(cfg["allowed"])
+    running(native)
+    return {**layout.describe(), "enabled_modes": cfg["capture_modes"], "max_pixels": 12_000_000,
+            "windows": [{"window_id": w.id, "exe": w.exe, "title": w.title,
+                         "dpi": w.dpi, "rect": rect_data(w.rect)} for w in windows],
+            "note": "No pixels transferred. Mode must be enabled locally and owner consent is required for images."}
+
+
+@tool()
+def capture_screen(mode: str = "window", window_id: str = "", monitor_id: str = "",
+                   left: int = 0, top: int = 0, width: int = 0, height: int = 0,
+                   dry_run: bool = True) -> CallToolResult | dict:
+    """Explicit window/monitor/virtual_desktop/region image to the MCP client.
+
+    Default dry run. Local enabled-mode + scoped data-sharing consent required.
+    Region coordinates are absolute physical pixels. Desktop modes can expose
+    other apps; they NEVER issue an input token. No automatic mode/backend fallback.
+    """
+    if mode not in CAPTURE_MODES:
+        raise ValueError("Mode must be window, monitor, virtual_desktop or region")
+    cfg = load_config()
+    native = running()
+    with MOUSE_MUTEX:
+        if mode not in cfg["capture_modes"]:
+            raise PermissionError("Capture mode is disabled locally")
+        if mode == "window":
+            if not window_id or monitor_id or any((left, top, width, height)):
+                raise ValueError("Window mode takes only window_id")
+            win = native.get_window(window_id, cfg["allowed"])
+            validate_pixels(win.rect)
+            if dry_run:
+                return {"dry_run": True, "mode": mode, "window_id": win.id, "rect": rect_data(win.rect),
+                        "image_transferred": False, "input_permission_granted": False}
+            return capture_window(window_id)
+        if window_id:
+            raise ValueError("Desktop modes do not target a window or grant input permission")
+        layout = native.screen_layout()
+        rect = choose_region(mode, layout, monitor_id=monitor_id, left=left, top=top, width=width, height=height)
+        if dry_run:
+            return {"dry_run": True, "mode": mode, "rect": rect_data(rect), "image_transferred": False,
+                    "input_permission_granted": False, "may_include_other_apps": True}
+        scope, deadline = authorize_capture(cfg, native, mode,
+            [monitor_id, rect_data(rect), layout.describe()],
+            f"Monitor ID: {monitor_id or '(virtual desktop/absolute region)'}\nPhysical bounds: " + json.dumps(rect_data(rect)))
+        def guard():
+            capture_read_guard(cfg, native, scope, deadline)
+            if native.screen_layout() != layout:
+                raise RuntimeError("Monitor geometry/scale changed; capture discarded")
+        guard()
+        started = time.monotonic()
+        png, method, uniform = native.capture_screen(rect, layout, guard=guard, deadline=deadline,
+            authorization={"capture_modes": cfg["capture_modes"], "capture_consent_mode": cfg["capture_consent_mode"],
+                           "allowed": sorted(cfg["allowed"])})
+        guard()
+        from io import BytesIO
+        from PIL import Image
+        with Image.open(BytesIO(png)) as image:
+            if image.format != "PNG" or image.size != (rect.width, rect.height):
+                raise RuntimeError("Desktop capture dimensions do not match requested physical region")
+        info = {"mode": mode, "monitor_id": monitor_id or None, "observation_id": uuid.uuid4().hex,
+                "rect": rect_data(rect), "origin": [rect.left, rect.top], "width": rect.width, "height": rect.height,
+                "mapping": "image coordinates + origin = absolute physical desktop pixels",
+                "input_authorization": False, "capture_id": None, "method": method,
+                "status": "best_effort_unverified", "possibly_uniform": uniform,
+                "gpu_viewport_verified": False, "may_include_other_apps": True,
+                "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+                "elapsed_seconds": round(time.monotonic() - started, 3), "display_layout": layout.describe()}
+        result = CallToolResult(structuredContent=info, content=[TextContent(type="text", text=json.dumps(info)),
+            ImageContent(type="image", mimeType="image/png", data=base64.b64encode(png).decode("ascii"))])
+        guard()
         return result
 
 
@@ -436,7 +572,7 @@ def _consent_job(summary, cancel):
     user32.MessageBoxW.argtypes = (wt.HWND, wt.LPCWSTR, wt.LPCWSTR, wt.UINT)
     user32.MessageBoxW.restype = ct.c_int
     return user32.MessageBoxW(None,
-        "MCP requests foreground operations. Only the local owner should approve.\n\n" + summary,
+        "MCP requests an operation. Review the scope below. Only the local owner should approve.\n\n" + summary,
         "TaskKit.vn - local owner consent", 0x00000004 | 0x00000030 | 0x00040000) == 6
 
 

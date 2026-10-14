@@ -17,10 +17,10 @@ def test_capture_rejects_changed_or_failed_frame(bridge, fault):
     native.capture_hook = hook
     original = native.capture_window
     if fault in {'blank', 'dimensions', 'timeout', 'crash'}:
-        def capture(win):
+        def capture(win, **kwargs):
             if fault == 'timeout': raise TimeoutError('worker deadline')
             if fault == 'crash': raise RuntimeError('worker crash')
-            png, method, _ = original(win)
+            png, method, _ = original(win, **kwargs)
             if fault == 'dimensions':
                 from PIL import Image
                 out = BytesIO(); Image.new('RGB', (1, 1)).save(out, 'PNG'); png = out.getvalue()
@@ -102,11 +102,15 @@ def test_decline_cannot_arm_from_mcp(bridge, monkeypatch):
     assert not server.CONSENT.armed(cfg)
 
 
-def test_capture_is_read_only_and_does_not_arm_session(bridge, monkeypatch):
+def test_capture_data_consent_does_not_arm_input_session(bridge, monkeypatch):
     native, cfg = bridge
-    monkeypatch.setattr(server, 'ask_local_consent', lambda _: pytest.fail('read requested input consent'))
+    dialogs=[]
+    monkeypatch.setattr(server, 'ask_local_consent', lambda text: dialogs.append(text) or True)
     server.capture_window(native.current.id)
     assert not server.CONSENT.armed(cfg)
+    assert len(dialogs)==1
+    assert 'SEND an image' in dialogs[0]
+    assert server.CAPTURE_CONSENT.scope is not None
 
 
 @pytest.mark.parametrize('fault', ['stop', 'dpi', 'identity', 'expired'])

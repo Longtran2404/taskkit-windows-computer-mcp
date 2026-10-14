@@ -7,7 +7,7 @@
 - [ ] Extract full source; inspect LICENSE/NOTICE and default disabled config. Run the non-admin installer with Python 3.11, then separately 3.13; repeat installation and confirm there is no nested/stale package path. Verify package version `0.4.2.dev0` and `pip check`.
 - [ ] Test paths with spaces and Unicode. Confirm existing config bytes survive. Confirm `-InstallCodex` is the sole registration opt-in; omit it when registration should not change. Installer must not modify execution policy or request elevation.
 - [ ] Verify Tkinter preview availability. Run `python -m pytest -q` and `python scripts/smoke_test.py`. The ABI test should pass on Windows; remaining adapter tests are still simulations. Smoke uses disabled config and sends no input.
-- [ ] Start MCP stdio from the installed wheel outside the checkout. Check 15 tools, structured status, dry-run defaults and `isError` on invalid input. Confirm no network listener is opened.
+- [ ] Start MCP stdio from the installed wheel outside the checkout. Check 17 tools, structured status, dry-run defaults and `isError` on invalid input. Confirm no network listener is opened.
 
 ## Consent and permanent stop
 
@@ -55,3 +55,13 @@ Do not publish compatibility claims until the relevant items are recorded as pas
 - [ ] Reparent a same-process control to another overlapping window, replace its UIA root, change PID/bounds/password during pattern resolution, stop or expire/change consent before the effect. Refuse; no other window/control should be mutated.
 - [ ] Validate selection readback and scroll percentages/at-boundary behavior. A provider-dispatched action after timeout may complete; inspect before retry. Multi-process providers, invisible/off-window virtualized controls and deep (>64) trees can be refused by scope checks.
 - [ ] Do not claim CAD/Blender viewport background mouse support from passing generic UIA tests. Use a verified app API or separate desktop for that requirement.
+
+## Explicit capture modes (all pending on live Windows)
+
+- [ ] Confirm default window-only eligibility. Broad mode config alone does not transmit pixels: decline/timeout local data-sharing consent; no image/result. Confirm legacy capture_window also uses this consent without arming input. An empty capture_modes list disables MCP image transmission.
+- [ ] Discover geometry without capture/consent. Capture selected monitor, all-monitor virtual desktop and signed absolute region on layouts with negative origins, gaps, mixed 100/150/200% scaling and custom scaling. Validate exact dimensions/origin/pixels; desktop DPI is nominal scale-derived and labelled accordingly.
+- [ ] Test out-of-bounds, zero/negative dimensions, Win32 overflow and >12MP images. Reject, with no implicit scale/clamp/wider capture. Verify failed PrintWindow does not fall back to desktop. Verify monitor scope and region rectangle shown in native consent are correct.
+- [ ] After capture scope consent, repeat exact scope, change region/mode/monitor/config, expire consent, stop mid-worker and hot-plug/change display geometry/scale. Require new consent or discard/stop; no stale image accepted. Status must not show stale capture grants.
+- [ ] Inspect resource/process counts during repeated BitBlt captures and forced GetDC/CreateDC/DIB/SelectObject/BitBlt/GdiFlush failures. Confirm buffers flushed before reads and all handles released; crashed/late/hung workers reaped. Record deadline plus cleanup/scheduling overhead.
+- [ ] Verify protected/HDR/GPU surfaces and cursor inclusion against known content. Do not infer correctness from nonuniform pixels. Desktop modes can expose other apps/secrets; approve only controlled test contents and keep images local unless explicitly choosing MCP sharing.
+- [ ] Desktop capture_id is null; observation_id cannot authorize mouse/key/app-only mutations. Recapture an allowlisted app and separately authorize its mutation. No permissions extend to another app merely because it appears in desktop pixels.
