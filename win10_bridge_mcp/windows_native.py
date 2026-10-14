@@ -360,6 +360,7 @@ def _stop_if_needed() -> None:
     if U.GetAsyncKeyState(0x1B) & 0x8001 or U.GetAsyncKeyState(0x7B) & 0x8001:
         SESSION_STOP.set()
     if SESSION_STOP.is_set() or stopped():
+        SESSION_STOP.set()
         raise InterruptedError("Esc/F12 emergency abort or preview closed")
 
 
@@ -418,6 +419,10 @@ def release_all() -> None:
 
 
 def _activate(win: Window) -> None:
+    from . import indicator
+    enable_session_stop()
+    indicator.ensure(SESSION_STOP)
+    _stop_if_needed()
     if U.GetForegroundWindow() != win.hwnd:
         U.SetForegroundWindow(win.hwnd)
     _interruptible_wait(0.10)

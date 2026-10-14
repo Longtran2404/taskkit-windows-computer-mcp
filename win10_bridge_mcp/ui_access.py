@@ -46,9 +46,9 @@ def inspect(hwnd):
     return result
 
 
-def value(hwnd, automation_id, new_value=None):
+def value(hwnd, automation_id, new_value=None, control_name=""):
     with elements(hwnd) as (types, controls):
-        matches = [c for c in controls if c.CurrentAutomationId == automation_id
+        matches = [c for c in controls if (c.CurrentAutomationId == automation_id if automation_id else c.CurrentName == control_name)
                    and c.CurrentControlType == types.UIA_EditControlTypeId and not c.CurrentIsPassword]
         if len(matches) != 1:
             raise ValueError("Expected exactly one non-password edit control with this ID")
@@ -64,9 +64,9 @@ def value(hwnd, automation_id, new_value=None):
         return pattern.CurrentValue
 
 
-def invoke(hwnd, automation_id):
+def invoke(hwnd, automation_id, control_name=""):
     with elements(hwnd) as (types, controls):
-        matches = [c for c in controls if c.CurrentAutomationId == automation_id
+        matches = [c for c in controls if (c.CurrentAutomationId == automation_id if automation_id else c.CurrentName == control_name)
                    and c.CurrentControlType == types.UIA_ButtonControlTypeId]
         if len(matches) != 1 or not matches[0].CurrentIsEnabled:
             raise ValueError("Expected exactly one enabled button with this ID")

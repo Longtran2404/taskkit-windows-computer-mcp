@@ -50,11 +50,14 @@ def bridge_status() -> dict:
     """Read-only bridge capabilities and safety settings; no mouse movement."""
     cfg = load_config()
     from . import __version__
+    from . import indicator
     return {
         "version": __version__,
         "backend": "native_win32",
         "initialization": "automatic on MCP startup / first native call",
         "requires_sky": False,
+        "control_indicator_active": indicator.active(),
+        "control_indicator": "automatic click-through monitor borders + TaskKit MCP in use - ESC to cancel.",
         "developed_by": "TaskKit.vn - Minh Long Tran",
         "homepage": "https://taskkit.vn",
         "windows_capture": "PrintWindow (can fail for GPU CAD viewports)",
@@ -65,7 +68,7 @@ def bridge_status() -> dict:
         "full_mouse": ["move", "click", "double_click", "drag", "hold", "scroll vertical", "scroll horizontal", "left", "right", "middle", "x1", "x2", "ctrl", "shift", "alt", "space"],
         "concurrent_desktop_mouse": False,
         "emergency_stop": "Esc or F12 aborts input; Esc closes preview; buttons released in finally",
-        "local_preview": "show_live_view / close_live_view; Esc stops until preview reopened",
+        "local_preview": "optional show_live_view / close_live_view; closing stops the authorized session",
         "note": "For uninterrupted concurrent GUI work use a separate VM/workstation; Revit API MCP is preferred for BIM edits."
     }
 
@@ -134,6 +137,46 @@ def control_action(window_id: str, capture_id: str, automation_id: str,
 
 
 @mcp.tool()
+def app_control(window_id: str, capture_id: str, automation_id: str = "",
+                action: Literal["set_value", "invoke"] = "invoke", value: str = "", dry_run: bool = True,
+                control_name: str = "") -> dict:
+    """Control supported app buttons/edits via UIA without SendInput or SetFocus.
+
+    Shows a visual blue app cursor for visible controls. The app may change focus
+    through its provider; report observed focus/pointer state and verify results.
+    Unsupported canvas/drag controls fail; there is no physical-input fallback.
+    """
+    from . import ui_access, indicator
+    if bool(automation_id)==bool(control_name) or len(control_name)>300 or action not in {"set_value", "invoke"} or len(value)>4000:
+        raise ValueError("Exactly one unique automation_id or control_name, supported action and bounded value required")
+    cfg=load_config()
+    with MOUSE_MUTEX:
+        native=require_session(cfg)
+        win=native.get_window(window_id,cfg["allowed"])
+        REGISTRY.verify(capture_id,window_id,win.rect)
+        controls=[c for c in ui_access.inspect(win.hwnd) if (c["automation_id"]==automation_id if automation_id else c["name"]==control_name)
+                  and c["control_type"]==(50004 if action=="set_value" else 50000)]
+        if len(controls)!=1 or not controls[0]["enabled"]:
+            raise ValueError("Expected exactly one enabled control with this ID")
+        if dry_run:return {"dry_run":True,"action":action,"physical_input":False}
+        before=native.POINT()
+        if not native.U.GetCursorPos(before):raise RuntimeError("Cannot inspect pointer position")
+        foreground=native.U.GetForegroundWindow()
+        indicator.ensure(native.SESSION_STOP)
+        native._stop_if_needed()
+        REGISTRY.consume(capture_id)
+        rect=controls[0]["rect"]
+        indicator.mark_target(win.hwnd,(rect[0]+rect[2])//2,(rect[1]+rect[3])//2)
+        actual=ui_access.value(win.hwnd,automation_id,value,control_name=control_name) if action=="set_value" else ui_access.invoke(win.hwnd,automation_id,control_name=control_name)
+        after=native.POINT()
+        native.U.GetCursorPos(after)
+        return {"physical_input":False,"value_matches":actual==value if action=="set_value" else None,
+                "invoke_requested":action=="invoke","pointer_unchanged":(before.x,before.y)==(after.x,after.y),
+                "focus_unchanged":foreground==native.U.GetForegroundWindow(),
+                "notice":"App provider controls the result; verify the resulting UI/file"}
+
+
+@mcp.tool()
 def save_notepad_text(window_id: str, capture_id: str, path: str, open_saved: bool = True, dry_run: bool = True) -> dict:
     """Save current classic Notepad editor text via file API, independently of Save As.
 
@@ -182,7 +225,7 @@ def show_live_view(window_id: str) -> dict:
     """Show a local live preview of one allowed window. Esc closes and stops input.
 
     Opens a separate Windows window; does not enable physical input or upload frames.
-    Reopening the preview clears its stop latch; existing mouse consent still applies.
+    A stopped foreground_session cannot be resumed by reopening the preview.
     """
     from .viewer import show_viewer
     cfg = load_config()

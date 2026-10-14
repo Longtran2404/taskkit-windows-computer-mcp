@@ -9,7 +9,7 @@ from mcp.client.stdio import stdio_client
 def read_state(out):
  try:
   state=json.loads((out/'fixture.json').read_text(encoding='utf-8'));read_state.cached=state;return state
- except (FileNotFoundError,json.JSONDecodeError):return getattr(read_state,'cached',None)
+ except (FileNotFoundError,PermissionError,json.JSONDecodeError):return getattr(read_state,'cached',None)
 async def main(out):
  out.mkdir(parents=True,exist_ok=True)
  cfg=out/'config.json';cfg.write_text(json.dumps({'allow_processes':['python.exe'],'mouse_control_mode':'foreground_session'}))
@@ -66,11 +66,19 @@ async def main(out):
     await call('type_text',{'window_id':wid,'capture_id':meta['capture_id'],'text':text,'dry_run':False})
     await asyncio.sleep(.25);assert read_state(out)['text']==text
     results.append('unicode_text');await capture('after.png')
+    status=json.loads((await call('bridge_status',{})).content[0].text)
+    assert status['control_indicator_active'],'Visible input-session indicator missing'
+    from PIL import ImageGrab
+    ImageGrab.grab(all_screens=True).save(out/'desktop_indicator.png')
     # Send a real Windows Escape pulse to the currently active fixture.
     from win10_bridge_mcp import windows_native as native
     native._virtual_key(0x1B,True);await asyncio.sleep(.12);native._virtual_key(0x1B,False)
     await asyncio.sleep(.2)
-    status=json.loads((await call('bridge_status',{})).content[0].text);assert status['session_stopped']
+    for _ in range(50):
+     status=json.loads((await call('bridge_status',{})).content[0].text)
+     if status['session_stopped'] and not status['control_indicator_active']:break
+     await asyncio.sleep(.04)
+    assert status['session_stopped'] and not status['control_indicator_active']
     blocked=await session.call_tool('capture_window',{'window_id':wid});assert blocked.isError
     results.append('escape_stop')
     (out/'report.json').write_text(json.dumps({'passed':results,'count':len(results),'version':status['version']}),encoding='utf-8')
