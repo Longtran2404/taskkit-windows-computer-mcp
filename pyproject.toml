@@ -23,3 +23,6 @@ include = ["win10_bridge_mcp*"]
 
 [tool.setuptools]
 license-files = ["LICENSE", "NOTICE"]
+
+[tool.setuptools.package-data]
+win10_bridge_mcp = ["assets/*.png", "assets/*.svg"]

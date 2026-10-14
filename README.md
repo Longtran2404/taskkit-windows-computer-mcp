@@ -84,3 +84,6 @@ Before the first authorized input, the bridge shows a blue border fading inward 
 ## App controls and visual cursor
 
 app_control invokes supported UI Automation buttons or sets ValuePattern edit values without SetFocus, cursor movement or SendInput. A short blue cursor marker identifies visible app controls; it is visual, not a second Windows input device. Unsupported canvas/drag controls fail with no physical fallback. Each result reports observed pointer/focus changes; app providers may choose to activate their windows. Verified classic Notepad text update with pointer and foreground unchanged. General PDF/CAD dragging still uses the physical mouse or needs an application-specific API/isolated desktop.
+
+The indicator uses the provided TaskKit transparent logo (original SVG and pre-rendered PNG included), a 24 px top offset, and static gradient/bevel/shadow depth. The resized logo is cached; there is no WebView or GPU 3D/animation dependency.
+

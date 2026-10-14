@@ -4,6 +4,7 @@ import atexit
 import queue
 import threading
 import time
+from functools import lru_cache
 
 _lock = threading.Lock()
 _process = None
@@ -59,6 +60,14 @@ def ensure(session_stop):
         threading.Thread(target=watch, daemon=True).start()
 
 
+@lru_cache(maxsize=4)
+def _logo(size):
+    from PIL import Image
+    from pathlib import Path
+    with Image.open(Path(__file__).with_name('assets') / 'taskkit-logo.png') as logo:
+        return logo.convert('RGBA').resize((size,size),Image.Resampling.LANCZOS)
+
+
 def _render(width, height, origin_x=0, origin_y=0):
     from PIL import Image, ImageDraw, ImageFont, ImageChops, ImageFilter
     import os
@@ -68,19 +77,29 @@ def _render(width, height, origin_x=0, origin_y=0):
         alpha = round(210 * (1-depth/18)**1.8)
         draw.rectangle((depth, depth, width-1-depth, height-1-depth), outline=(42, 159, 255, alpha))
     left, right = width//2-210, width//2+210
-    shadow = Image.new('RGBA', image.size)
-    ImageDraw.Draw(shadow).rounded_rectangle((left-3, 10, right+3, 58), radius=15, fill=(5, 32, 65, 120))
-    image = Image.alpha_composite(image, shadow.filter(ImageFilter.GaussianBlur(5)))
+    top, bottom = 24, 70
+    # Small static layers provide depth without a GPU renderer or animation loop.
+    shadow = Image.new('RGBA', (444,78))
+    ImageDraw.Draw(shadow).rounded_rectangle((12,13,432,61),radius=14,fill=(1,12,28,170))
+    image.alpha_composite(shadow.filter(ImageFilter.GaussianBlur(5)),(left-12,top-8))
     draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle((left, 8, right, 52), radius=12, fill=(8, 28, 53, 248), outline=(65, 170, 245, 210), width=1)
-    draw.line((left+17, 9, right-17, 9), fill=(126, 219, 255, 220), width=1)
-    icon_x=left+27
-    draw.regular_polygon((icon_x,30,13), 6, rotation=30, fill=(23, 85, 133,255), outline=(90,212,255,255))
-    draw.line((icon_x-5,24,icon_x+5,24),fill=(199,241,255,255),width=2)
-    draw.line((icon_x,24,icon_x,35),fill=(199,241,255,255),width=2)
-    draw.ellipse((right-19,27,right-13,33),fill=(68,218,255,255))
+    draw.rounded_rectangle((left,top+4,right,bottom+4),radius=13,fill=(3,15,32,240),outline=(16,79,127,200),width=1)
+    surface = Image.new('RGBA',(420,46))
+    sd=ImageDraw.Draw(surface)
+    for row in range(46):
+        t=row/45
+        sd.line((0,row,420,row),fill=(round(15-7*t),round(53-28*t),round(89-39*t),248))
+    mask=Image.new('L',surface.size)
+    ImageDraw.Draw(mask).rounded_rectangle((0,0,419,45),radius=12,fill=255)
+    surface.putalpha(ImageChops.multiply(surface.getchannel('A'),mask))
+    image.alpha_composite(surface,(left,top))
+    draw=ImageDraw.Draw(image)
+    draw.rounded_rectangle((left,top,right,bottom),radius=12,outline=(83,173,231,195),width=1)
+    draw.line((left+17,top+1,right-17,top+1),fill=(169,224,255,200),width=1)
+    image.alpha_composite(_logo(34),(left+10,top+6))
+    draw.ellipse((right-19,top+20,right-13,top+26),fill=(68,218,255,255))
     font = ImageFont.truetype(os.path.join(os.environ.get('SystemRoot', 'C:/Windows'), 'Fonts', 'segoeuib.ttf'), 16)
-    draw.text((width//2+9, 29), 'TaskKit MCP in use - ESC to cancel.', font=font, fill=(232, 246, 255, 255), anchor='mm')
+    draw.text((width//2+9,top+24), 'TaskKit MCP in use - ESC to cancel.', font=font, fill=(232, 246, 255, 255), anchor='mm')
     target=_target
     if target and time.monotonic() < target[3]:
         from . import windows_native as n

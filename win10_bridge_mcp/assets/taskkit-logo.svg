@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">TaskKit AI transparent logo</title>
+  <desc id="desc">Briefcase workflow icon with connected nodes and checkmark on a transparent background</desc>
+  <defs>
+    <linearGradient id="taskkit-blue-transparent" x1="40" x2="216" y1="32" y2="224" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0B5CFF" />
+      <stop offset="1" stop-color="#1C8BFF" />
+    </linearGradient>
+    <linearGradient id="taskkit-cyan-transparent" x1="64" x2="176" y1="96" y2="176" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#13D5D8" />
+      <stop offset="1" stop-color="#18A8FF" />
+    </linearGradient>
+    <filter id="taskkit-soft-shadow" x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0B5CFF" flood-opacity="0.14" />
+    </filter>
+  </defs>
+  <g filter="url(#taskkit-soft-shadow)">
+    <path d="M88 76V61c0-13 10-23 23-23h34c13 0 23 10 23 23v15" fill="none" stroke="url(#taskkit-blue-transparent)" stroke-width="14" stroke-linecap="round" />
+    <path d="M59 82h138c18 0 32 14 32 32v70c0 18-14 32-32 32H59c-18 0-32-14-32-32v-70c0-18 14-32 32-32Z" fill="#fff" stroke="url(#taskkit-blue-transparent)" stroke-width="14" />
+    <path d="M77 127h40c13 0 24 11 24 24v3c0 13 11 24 24 24h29" fill="none" stroke="url(#taskkit-blue-transparent)" stroke-width="12" stroke-linecap="round" />
+    <path d="M77 177h36c16 0 28-12 28-28" fill="none" stroke="url(#taskkit-cyan-transparent)" stroke-width="12" stroke-linecap="round" />
+    <circle cx="73" cy="127" r="17" fill="#0B5CFF" />
+    <circle cx="78" cy="178" r="17" fill="#13D5D8" />
+    <circle cx="144" cy="154" r="18" fill="#18C6EA" />
+    <circle cx="202" cy="186" r="35" fill="#0B5CFF" />
+    <path d="m185 186 12 12 24-27" fill="none" stroke="#fff" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+</svg>
