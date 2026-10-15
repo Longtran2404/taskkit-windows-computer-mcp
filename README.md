@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.9
+# TaskKit.vn Windows Computer Bridge MCP v0.4.10
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -7,6 +7,12 @@
 **Được phát triển bởi TaskKit.vn - Minh Long Tran.**
 
 Local Windows MCP bridge for allowed windows. PNG screenshots are returned as MCP ImageContent to the connected AI client; the default workflow uses images in Codex chat. The optional separate live-preview window remains available, but does not open automatically.
+
+**Windows 10 Computer Use capture failing?** [English installation and troubleshooting guide](docs/WINDOWS10_QUICKSTART.md). TaskKit uses its own Win32 backend, without `@oai/sky` or OpenAI binary changes. It is an independent workaround, not an official fix; GPU/protected content, including a particular CapCut editor, still needs local verification.
+
+v0.4.10 adds `diagnose_capture` to distinguish a captured window, suspicious blank frame and bounded native failure. Optional desktop observation is explicit, requires all-app scope and never issues input tickets or clears cancellation/recovery. See the guide for safe first-test steps and updates; reconnect the MCP once after installing a new version.
+
+Verified locally: 75 unit tests, 24-tool MCP handshake, installed-package diagnostic capture on two Windows 10 monitors, and installed finish/handoff regression. The diagnostic leaves a stopped session stopped and preserves the timeout gate. These fixture checks do not certify CapCut editor/GPU content.
 
 ## Input modes
 
@@ -38,7 +44,7 @@ This selects applications on the normal Windows desktop; it does not bypass Wind
 
 ## Tools
 
-bridge_status, start_control_session, end_control_session, inspect_windows, capture_window, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+bridge_status, start_control_session, end_control_session, inspect_windows, capture_window, diagnose_capture, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
 
 ### Finish computer work and hand control back
 

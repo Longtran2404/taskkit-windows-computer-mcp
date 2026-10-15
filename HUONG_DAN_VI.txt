@@ -1,6 +1,15 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.9
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.10
 Được phát triển bởi TaskKit.vn - Minh Long Tran.
 Website: https://taskkit.vn
+
+v0.4.10 - KIỂM TRA LỖI CHỤP MÀN HÌNH VÀ HƯỚNG DẪN CỘNG ĐỒNG
+- Thêm diagnose_capture: phân biệt chụp được, ảnh có thể trắng và lỗi native.
+  Không di chuyển chuột/focus, không cấp quyền click, không tự mở lại phiên đã dừng.
+- include_desktop=True chỉ khi yêu cầu rõ và cấu hình all-app; ảnh desktop có thể
+  chứa ứng dụng khác. Ảnh này chỉ để quan sát, không thay quyền thao tác của cửa sổ.
+- Hướng dẫn tiếng Anh: docs/WINDOWS10_QUICKSTART.md. Cài độc lập với @oai/sky,
+  không sửa binary OpenAI. Nội dung GPU/CapCut vẫn phải kiểm tra trên máy thực tế.
+- Cập nhật bằng chạy lại bộ cài, giữ cấu hình cũ; kết nối lại MCP một lần để nạp bản mới.
 
 v0.4.9 - KẾT THÚC PHIÊN KHI AI XONG VIỆC
 - AI phải gọi end_control_session sau khi kiểm tra xong công việc trên máy,

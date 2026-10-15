@@ -13,4 +13,5 @@
 - A native timeout is recoverable within the existing authorized task, not owner cancellation. Require inspect_windows followed by a successful fresh capture_window; reject old tickets and never clear Esc/F12. Do not ask for owner restart solely because a worker timed out.
 - AI clients must call end_control_session after final computer verification, before their final response, waiting for the owner, or leaving desktop work. Close all TaskKit overlays, release held input and invalidate tickets while keeping applications/documents open and the MCP connection available for reads. Do not automatically replay input or rearm after finishing.
 - A successful input/invocation is not proof of a completed UI/file operation.
+- diagnose_capture is observation only: no input tickets, timeout recovery reset or session rearm. Never capture the desktop implicitly or outside owner-selected all-app scope. Preserve GPU/protected-surface limitations in community guidance.
 - Run python -m pytest -q and python scripts/smoke_test.py; document live Windows limitations.

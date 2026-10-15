@@ -106,6 +106,7 @@ def bridge_status() -> dict:
         "backend": "native_win32",
         "initialization": "automatic on MCP startup / first native call",
         "requires_sky": False,
+        "capture_diagnostics": "diagnose_capture: bounded PrintWindow test, optional explicit desktop observation, no input ticket",
         "control_indicator_active": indicator.active(),
         "control_indicator_displays": indicator.status(),
         "native_operations": native_worker.status(),
@@ -181,6 +182,56 @@ def capture_desktop(monitor_id: str = "all", max_edge: int = 4096) -> CallToolRe
     png, info = capture(monitor_id, max_edge)
     return CallToolResult(content=[TextContent(type="text", text=json.dumps(info)),
             ImageContent(type="image", mimeType="image/png", data=base64.b64encode(png).decode('ascii'))])
+
+
+@tool(structured_output=False)
+def diagnose_capture(window_id: str, include_desktop: bool = False,
+                     monitor_id: str = "all", max_edge: int = 4096) -> CallToolResult:
+    """Diagnose a blank/failed window capture without input, focus or binary patches.
+
+    Returns a bounded PrintWindow result and, only when explicitly requested,
+    a visible desktop screenshot. Desktop observation requires all-app scope
+    and may include other applications. Neither image issues an input ticket,
+    clears timeout recovery, or rearms an ended/Esc-cancelled session.
+    A successful diagnostic is not proof that every GPU viewport renders.
+    """
+    cfg = load_config()
+    if include_desktop and "*" not in cfg["allowed"]:
+        raise PermissionError('Desktop diagnostics require owner-authorized allow_processes=["*"]')
+    if include_desktop and not 640 <= max_edge <= 8192:
+        raise ValueError('max_edge must be 640..8192')
+    with MOUSE_MUTEX:
+        native = backend()
+        win = native.get_window(window_id, cfg["allowed"])
+        info = {"window_id": win.id, "requires_sky": False,
+                "input_ticket_issued": False, "desktop_requested": include_desktop,
+                "note": "Read-only diagnostic. Verify image contents; no input or recovery authorization is issued."}
+        images = []
+        try:
+            png, method, blank = native.capture_window(win)
+            info["window_capture"] = {"status": "possibly_blank" if blank else "captured",
+                                      "method": method}
+            if not blank:
+                images.append(ImageContent(type="image", mimeType="image/png",
+                                          data=base64.b64encode(png).decode("ascii")))
+        except (TimeoutError, RuntimeError, OSError) as exc:
+            info["window_capture"] = {"status": "failed", "error_type": type(exc).__name__,
+                                      "error": str(exc)[:1200]}
+        if include_desktop:
+            from .desktop import capture
+            try:
+                png, meta = capture(monitor_id, max_edge)
+                info["desktop_capture"] = dict(meta, status="captured")
+                images.append(ImageContent(type="image", mimeType="image/png",
+                                          data=base64.b64encode(png).decode("ascii")))
+            except (ValueError, RuntimeError, OSError) as exc:
+                info["desktop_capture"] = {"status": "failed", "error_type": type(exc).__name__,
+                                           "error": str(exc)[:1200]}
+        info["image_order"] = (["window"] if info["window_capture"]["status"] == "captured" else []) + (
+            ["desktop"] if info.get("desktop_capture", {}).get("status") == "captured" else [])
+        info["next_step"] = ("Inspect and capture the target/dialog with capture_window before physical input. "
+                             "Desktop observation cannot replace an input ticket. GPU/protected surfaces may remain unsupported.")
+        return CallToolResult(content=[TextContent(type="text", text=json.dumps(info, ensure_ascii=False)), *images])
 
 
 @tool()

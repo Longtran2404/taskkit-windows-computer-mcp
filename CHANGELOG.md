@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.10 - 2026-10-16
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Add read-only diagnose_capture with bounded PrintWindow testing, captured/possibly_blank/failed status and optional explicit desktop observation. Preserve original errors when desktop observation also fails. No implicit desktop capture, focus changes, input tickets, cancellation reset or timeout recovery bypass.
+- Require owner-selected all-app scope before any desktop diagnostic. Include image ordering, method and desktop coordinate/scale metadata; do not claim every GPU viewport is supported.
+- Add an English Windows 10 installation/troubleshooting guide for people affected by built-in Computer Use capture failures. Explain independent backend, unchanged OpenAI binaries, default disabled input, owner scope, ESC/F12, finish/handoff and manual update/reconnect.
+- Add diagnostic regressions and an opt-in real MCP fixture check; preserve session finish and multi-monitor behavior.
+- Local validation: 75 unit tests, 24-tool handshake, installed diagnostic capture on two Windows 10 monitors and installed finish/handoff regression. Diagnostic reads leave a stopped session stopped; finish interrupts held input and closes overlays. CapCut editor/GPU content is not certified by these fixture checks.
+
 ## 0.4.9 - 2026-10-16
 
 Developed by TaskKit.vn - Minh Long Tran.
