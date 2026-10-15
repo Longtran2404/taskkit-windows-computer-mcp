@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.7 - 2026-10-15
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Isolate blocking PrintWindow and UI Automation operations in disposable worker processes with a five-second deadline. Kill/reap the actual interpreter worker rather than only the Windows virtual-environment redirector; preserve the target application.
+- Dispatch native MCP tools off the transport event loop so status, discovery and emergency stop remain responsive during another blocked provider call. Keep capture/input/session ticket issuance serialized.
+- Expose active native operations and the last failure. Read timeouts send no input; capture failure issues no ticket. Timed-out mutations latch stop and report an unknown result, with no automatic retry or replay; ESC/F12 cancels the in-progress mutation worker.
+- Show the input indicator before live preview, with a centered banner on every monitor. Refresh overlay stacking without activation so later fullscreen previews cannot hide one monitor's border/banner. Expose actual per-monitor overlay bounds in status.
+- Add timeout, worker cleanup, transport responsiveness and no-ticket/no-replay regressions. Add an opt-in real hung-provider fixture and extend the two-monitor fullscreen check to verify both overlay geometries and stacking.
+- Local validation: 51 unit tests, 22-tool stdio handshake, 16 real input/lifecycle cases, six desktop/dialog groups and real provider timeout recovery on Windows 10.
+
 ## 0.4.6 - 2026-10-15
 
 Developed by TaskKit.vn - Minh Long Tran.

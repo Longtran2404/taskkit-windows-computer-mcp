@@ -10,7 +10,10 @@ import json
 import os
 from pathlib import Path
 import threading
+from functools import partial, wraps
 from typing import Literal
+
+import anyio
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ImageContent, TextContent
@@ -21,6 +24,22 @@ APP_NAME = "TaskKit.vn Windows Computer Bridge MCP"
 mcp = FastMCP(APP_NAME)
 REGISTRY = CaptureRegistry()
 MOUSE_MUTEX = threading.RLock()
+
+
+def tool(**options):
+    """Keep the MCP transport responsive while native calls wait in a thread.
+
+    Direct Python callers retain the existing synchronous function interface.
+    In particular status, window discovery and emergency stop can still run
+    while another request is waiting for a blocked application provider.
+    """
+    def register(function):
+        @wraps(function)
+        async def dispatch(*args, **kwargs):
+            return await anyio.to_thread.run_sync(partial(function, *args, **kwargs))
+        mcp.tool(**options)(dispatch)
+        return function
+    return register
 
 
 def load_config() -> dict:
@@ -45,18 +64,20 @@ def backend():
     return windows_native
 
 
-@mcp.tool()
+@tool()
 def bridge_status() -> dict:
     """Read-only bridge capabilities and safety settings; no mouse movement."""
     cfg = load_config()
     from . import __version__
-    from . import indicator, viewer
+    from . import indicator, viewer, native_worker
     return {
         "version": __version__,
         "backend": "native_win32",
         "initialization": "automatic on MCP startup / first native call",
         "requires_sky": False,
         "control_indicator_active": indicator.active(),
+        "control_indicator_displays": indicator.status(),
+        "native_operations": native_worker.status(),
         "control_indicator": "automatic click-through monitor borders + TaskKit MCP in use - ESC to cancel.",
         "developed_by": "TaskKit.vn - Minh Long Tran",
         "homepage": "https://taskkit.vn",
@@ -78,7 +99,7 @@ def bridge_status() -> dict:
     }
 
 
-@mcp.tool()
+@tool()
 def inspect_windows() -> dict:
     """List visible non-minimized windows in the owner's application scope.
 
@@ -96,7 +117,7 @@ def inspect_windows() -> dict:
         for w in wins]}
 
 
-@mcp.tool()
+@tool()
 def list_monitors() -> dict:
     """List actual monitor IDs, primary monitor and virtual-desktop coordinates."""
     from .desktop import list_monitors, monitor_bounds
@@ -106,7 +127,7 @@ def list_monitors() -> dict:
             "width": bounds.width, "height": bounds.height}}
 
 
-@mcp.tool(structured_output=False)
+@tool(structured_output=False)
 def capture_desktop(monitor_id: str = "all", max_edge: int = 4096) -> CallToolResult:
     """Screenshot one monitor or all monitors together, including visible dialogs.
 
@@ -123,7 +144,7 @@ def capture_desktop(monitor_id: str = "all", max_edge: int = 4096) -> CallToolRe
             ImageContent(type="image", mimeType="image/png", data=base64.b64encode(png).decode('ascii'))])
 
 
-@mcp.tool()
+@tool()
 def start_control_session() -> dict:
     """Start a NEW owner-authorized control task after Esc/F12 or preview close.
 
@@ -153,7 +174,7 @@ def require_session(cfg):
     return native
 
 
-@mcp.tool()
+@tool()
 def inspect_controls(window_id: str) -> dict:
     """Read bounded UI Automation controls of an allowed window; omit passwords."""
     from . import ui_access
@@ -162,7 +183,7 @@ def inspect_controls(window_id: str) -> dict:
     return {"window_id": window_id, "controls": ui_access.inspect(win.hwnd)}
 
 
-@mcp.tool()
+@tool()
 def control_action(window_id: str, capture_id: str, automation_id: str,
                    action: str, value: str = "", dry_run: bool = True) -> dict:
     """Set an edit value or invoke an identified button using foreground UI Automation.
@@ -191,7 +212,7 @@ def control_action(window_id: str, capture_id: str, automation_id: str,
         return {"invoke_requested": True, "notice": "Verify the resulting UI/file; invocation is not completion"}
 
 
-@mcp.tool()
+@tool()
 def app_control(window_id: str, capture_id: str, automation_id: str = "",
                 action: Literal["set_value", "invoke"] = "invoke", value: str = "", dry_run: bool = True,
                 control_name: str = "") -> dict:
@@ -232,7 +253,7 @@ def app_control(window_id: str, capture_id: str, automation_id: str = "",
                 "notice":"App provider controls the result; verify the resulting UI/file"}
 
 
-@mcp.tool()
+@tool()
 def save_notepad_text(window_id: str, capture_id: str, path: str, open_saved: bool = True, dry_run: bool = True) -> dict:
     """Save current classic Notepad editor text via file API, independently of Save As.
 
@@ -276,7 +297,7 @@ def save_notepad_text(window_id: str, capture_id: str, path: str, open_saved: bo
                 "open_requested": open_saved, "method": "Notepad UIA buffer + UTF-8 file API; original remains open"}
 
 
-@mcp.tool()
+@tool()
 def show_live_view(window_id: str = "", source: Literal["window", "desktop"] = "window",
                    monitor_id: str = "all", fullscreen: bool = False) -> dict:
     """Show a local live preview of one allowed window. Esc closes and stops input.
@@ -291,7 +312,9 @@ def show_live_view(window_id: str = "", source: Literal["window", "desktop"] = "
     from .viewer import show_viewer
     cfg = load_config()
     if cfg["mouse_control_mode"] == "foreground_session":
-        require_session(cfg)
+        native = require_session(cfg)
+        from . import indicator
+        indicator.ensure(native.SESSION_STOP)
     if source == "window":
         backend().get_window(window_id, cfg["allowed"])
     elif source == "desktop":
@@ -303,7 +326,7 @@ def show_live_view(window_id: str = "", source: Literal["window", "desktop"] = "
         return show_viewer(window_id, cfg["allowed"], source, monitor_id, fullscreen)
 
 
-@mcp.tool()
+@tool()
 def close_live_view() -> dict:
     """Close the local preview and latch an emergency stop for physical input."""
     from .viewer import close_viewer
@@ -311,20 +334,24 @@ def close_live_view() -> dict:
     return {"close_requested": True, "input_stopped": True}
 
 
-@mcp.tool(structured_output=False)
+@tool(structured_output=False)
 def capture_window(window_id: str) -> CallToolResult:
     """Capture an allowlisted window WITHOUT focusing it, return PNG plus capture_id.
 
     GPU viewports may be blank; verify image visually before using coordinates.
     MCP screenshot bytes are transferred to the AI client, not solely kept local.
     """
+    with MOUSE_MUTEX:
+        return _capture_window_result(window_id)
+
+
+def _capture_window_result(window_id: str) -> CallToolResult:
     cfg = load_config()
     win = backend().get_window(window_id, cfg["allowed"])
     png, method, blank = backend().capture_window(win)
     if blank:
         raise RuntimeError("PrintWindow returned a uniform/possibly blank image; NO click token issued")
-    with MOUSE_MUTEX:
-        t = REGISTRY.issue(win.id, win.rect, method)
+    t = REGISTRY.issue(win.id, win.rect, method)
     info = {"window_id": win.id, "capture_id": t.token,
             "width": win.rect.width, "height": win.rect.height,
             "method": method, "screenshot_verified_by_user": False,
@@ -350,7 +377,7 @@ def ask_local_consent(summary: str) -> bool:
     return result == 6  # IDYES
 
 
-@mcp.tool()
+@tool()
 def mouse_action(
     window_id: str,
     capture_id: str,
@@ -409,25 +436,25 @@ def mouse_action(
                 "notice": "Sent physical input; software result unverified. Capture again to verify."}
 
 
-@mcp.tool()
+@tool()
 def click_left(window_id: str, capture_id: str, x: int, y: int, dry_run: bool = True) -> dict:
     """Nhấp chuột TRÁI đúng một lần; không gửi nút phải/giữa hay lăn chuột."""
     return mouse_action(window_id, capture_id, "click", x, y, button="left", dry_run=dry_run)
 
 
-@mcp.tool()
+@tool()
 def click_right(window_id: str, capture_id: str, x: int, y: int, dry_run: bool = True) -> dict:
     """Nhấp chuột PHẢI đúng một lần để mở menu ngữ cảnh; không gửi nút khác."""
     return mouse_action(window_id, capture_id, "click", x, y, button="right", dry_run=dry_run)
 
 
-@mcp.tool()
+@tool()
 def click_middle(window_id: str, capture_id: str, x: int, y: int, dry_run: bool = True) -> dict:
     """Nhấp nút GIỮA đúng một lần; đây là nhấn nút, không phải lăn chuột."""
     return mouse_action(window_id, capture_id, "click", x, y, button="middle", dry_run=dry_run)
 
 
-@mcp.tool()
+@tool()
 def scroll_mouse(window_id: str, capture_id: str, x: int, y: int,
                  wheel_ticks: int = 1, wheel_axis: Literal["vertical", "horizontal"] = "vertical",
                  dry_run: bool = True) -> dict:
@@ -436,7 +463,7 @@ def scroll_mouse(window_id: str, capture_id: str, x: int, y: int,
                         wheel_ticks=wheel_ticks, wheel_axis=wheel_axis, dry_run=dry_run)
 
 
-@mcp.tool()
+@tool()
 def type_text(window_id: str, capture_id: str, text: str, dry_run: bool = True, replace_all: bool = False) -> dict:
     """Type bounded Unicode text in an allowed foreground window after local consent.
 
@@ -470,7 +497,7 @@ def type_text(window_id: str, capture_id: str, text: str, dry_run: bool = True, 
         return {"performed": True, "characters": len(text), "notice": "Capture again to verify editor contents"}
 
 
-@mcp.tool()
+@tool()
 def press_key(window_id: str, capture_id: str, key: str, dry_run: bool = True) -> dict:
     """Press one bounded key or chord, e.g. ctrl+s, ctrl+l, enter, tab, alt+n.
 
@@ -503,14 +530,14 @@ def press_key(window_id: str, capture_id: str, key: str, dry_run: bool = True) -
         return {"performed": True, "key": key, "notice": "Capture again to verify"}
 
 
-@mcp.tool()
+@tool()
 def list_drives() -> dict:
     """Read existing local drive roots, for choosing an Explorer destination."""
     import string
     return {"drives": [f"{letter}:\\" for letter in string.ascii_uppercase if Path(f"{letter}:\\").is_dir()]}
 
 
-@mcp.tool()
+@tool()
 def open_directory(path: str) -> dict:
     """Open an existing absolute local directory in Windows Explorer.
 
@@ -530,7 +557,7 @@ def open_directory(path: str) -> dict:
     return {"open_requested": True, "path": str(target.resolve()), "notice": "Inspect windows and capture Explorer to verify"}
 
 
-@mcp.tool()
+@tool()
 def emergency_release() -> dict:
     """Best-effort release of any injected mouse buttons and modifiers; no dialog."""
     backend().SESSION_STOP.set()

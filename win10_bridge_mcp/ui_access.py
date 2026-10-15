@@ -3,6 +3,28 @@ from contextlib import contextmanager
 
 
 def focus_window(hwnd):
+    from .native_worker import call
+    return call('focus', {'hwnd': hwnd}, mutating=True)
+
+
+def inspect(hwnd):
+    from .native_worker import call
+    return call('inspect', {'hwnd': hwnd})
+
+
+def value(hwnd, automation_id, new_value=None, control_name=''):
+    from .native_worker import call
+    return call('value', {'hwnd': hwnd, 'arguments': {'automation_id': automation_id,
+                'new_value': new_value, 'control_name': control_name}}, mutating=new_value is not None)
+
+
+def invoke(hwnd, automation_id, control_name=''):
+    from .native_worker import call
+    return call('invoke', {'hwnd': hwnd, 'arguments': {'automation_id': automation_id,
+                'control_name': control_name}}, mutating=True)
+
+
+def _focus(hwnd):
     import comtypes
     import comtypes.client as client
     comtypes.CoInitialize()
@@ -31,7 +53,7 @@ def elements(hwnd):
         comtypes.CoUninitialize()
 
 
-def inspect(hwnd):
+def _inspect(hwnd):
     result = []
     with elements(hwnd) as (types, controls):
         for control in controls:
@@ -46,7 +68,7 @@ def inspect(hwnd):
     return result
 
 
-def value(hwnd, automation_id, new_value=None, control_name=""):
+def _value(hwnd, automation_id, new_value=None, control_name=""):
     with elements(hwnd) as (types, controls):
         matches = [c for c in controls if (c.CurrentAutomationId == automation_id if automation_id else c.CurrentName == control_name)
                    and c.CurrentControlType == types.UIA_EditControlTypeId and not c.CurrentIsPassword]
@@ -64,7 +86,7 @@ def value(hwnd, automation_id, new_value=None, control_name=""):
         return pattern.CurrentValue
 
 
-def invoke(hwnd, automation_id, control_name=""):
+def _invoke(hwnd, automation_id, control_name=""):
     with elements(hwnd) as (types, controls):
         matches = [c for c in controls if (c.CurrentAutomationId == automation_id if automation_id else c.CurrentName == control_name)
                    and c.CurrentControlType == types.UIA_ButtonControlTypeId]

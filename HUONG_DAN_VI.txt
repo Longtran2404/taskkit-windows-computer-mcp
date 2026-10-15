@@ -1,6 +1,18 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.6
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.7
 Được phát triển bởi TaskKit.vn - Minh Long Tran.
 Website: https://taskkit.vn
+
+v0.4.7 - CHỐNG KẸT THAO TÁC VÀ BÁO ĐIỀU KHIỂN TRÊN MỌI MÀN HÌNH
+- Chụp cửa sổ/đọc nút/nhấn nút UIA chạy trong tiến trình phụ, giới hạn 5 giây.
+  Nếu ứng dụng không phản hồi, dọn tiến trình phụ; không đóng ứng dụng của bạn.
+  MCP vẫn trả lời kiểm tra trạng thái và dừng khẩn cấp khi lệnh khác đang chờ.
+- Lỗi chụp không cấp capture_id. Lệnh nhấn nút/gán chữ/đặt focus hết thời gian
+  có kết quả chưa xác định: dừng phiên, kiểm tra hộp thoại trước khi giao việc mới.
+  Không tự nhấn lại vì thao tác trước có thể đã mở hộp thoại hoặc lưu tệp.
+- Viền và dòng TaskKit MCP in use - ESC to cancel. xuất hiện trên từng màn hình,
+  nằm trên preview fullscreen, không lấy focus và không chặn nhấp chuột.
+  bridge_status có native_operations và control_indicator_displays để chẩn đoán.
+- Sau cập nhật, kết nối lại MCP hoặc mở lại Codex một lần để nạp mã mới.
 
 v0.4.6 - HỘP THOẠI VÀ FULLSCREEN NHIỀU MÀN HÌNH
 - inspect_windows báo cửa sổ bị khóa và blocked_by_window_id của hộp thoại.

@@ -283,6 +283,14 @@ def require_unblocked(win: Window) -> None:
 
 
 def capture_window(win: Window) -> tuple[bytes, str, bool]:
+    from .native_worker import call
+    import base64
+    result = call('capture', {'hwnd': win.hwnd, 'window_id': win.id, 'exe': win.exe,
+                              'rect': [win.rect.left, win.rect.top, win.rect.right, win.rect.bottom]})
+    return base64.b64decode(result['png']), result['method'], result['blank']
+
+
+def _capture_window(win: Window) -> tuple[bytes, str, bool]:
     """Capture via PrintWindow; never fallback to occlusion-prone desktop pixels.
 
     Returns PNG bytes, capture method, suspicious/mostly uniform flag.

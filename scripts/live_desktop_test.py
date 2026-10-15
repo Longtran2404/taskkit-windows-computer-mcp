@@ -33,6 +33,8 @@ async def main(out):
                 wins,_=await call('inspect_windows')
                 win=next(w for w in wins['windows'] if w['pid']==state()['pid']);wid=win['window_id']
                 monitors,_=await call('list_monitors');assert len(monitors['monitors'])>=1
+                normal_controls,_=await call('inspect_controls',{'window_id':wid})
+                assert isinstance(normal_controls['controls'],list)
                 for monitor in ['all']+[m['monitor_id'] for m in monitors['monitors']]:
                     info,image=await call('capture_desktop',{'monitor_id':monitor})
                     assert info['image_width']>0 and info['image_height']>0 and 'capture_id' not in info
@@ -71,6 +73,20 @@ async def main(out):
                         if status['live_view'].get('last_frame_ready'):break
                         await asyncio.sleep(.1)
                     assert status['live_view']['last_frame_ready']
+                    from win10_bridge_mcp import windows_native as n
+                    await asyncio.sleep(.4)
+                    overlay,_=await call('bridge_status')
+                    displays=overlay['control_indicator_displays']['monitors']
+                    assert overlay['control_indicator_displays']['active'] and len(displays)==len(monitors['monitors'])
+                    zorder=[]
+                    @n.WNDENUMPROC
+                    def collect(hwnd,_):zorder.append(int(hwnd));return True
+                    n.U.EnumWindows(collect,0)
+                    for display in displays:
+                        assert n.U.IsWindowVisible(display['hwnd']) and not n.U.IsWindowEnabled(display['hwnd'])
+                        r=n.RECT();assert n.U.GetWindowRect(display['hwnd'],n.ct.byref(r))
+                        assert (r.left,r.top,r.right-r.left,r.bottom-r.top)==tuple(display[k] for k in ('x','y','width','height'))
+                        assert zorder.index(display['hwnd'])<zorder.index(overlay['live_view']['hwnd']),('Indicator hidden behind fullscreen',display)
                     if monitor=='all':
                         screenshot,result=await call('capture_desktop')
                         from PIL import Image
@@ -89,6 +105,7 @@ async def main(out):
                             await asyncio.sleep(.05)
                         assert state()['text']=='Fullscreen xuyên chuột thành công'
                 passed.append('single_and_all_monitor_fullscreen_click_through')
+                passed.append('indicator_on_every_monitor_above_fullscreen_without_focus')
                 await call('show_live_view',{'window_id':wid,'source':'window','fullscreen':False})
                 st,_=await call('bridge_status');assert not st['session_stopped'] and not st['live_view']['fullscreen']
                 passed.append('switch_back_without_cancelling')

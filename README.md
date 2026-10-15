@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.6
+# TaskKit.vn Windows Computer Bridge MCP v0.4.7
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -38,7 +38,23 @@ This selects applications on the normal Windows desktop; it does not bypass Wind
 
 ## Tools
 
-bridge_status, start_control_session, inspect_windows, capture_window, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+bridge_status, start_control_session, inspect_windows, capture_window, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+
+### Unresponsive applications
+
+PrintWindow and UI Automation run in disposable native worker processes with a five-second deadline. A blocked provider is stopped without terminating the application. Native calls do not block the MCP transport: bridge_status, window discovery and emergency stop remain available while another tool is waiting. bridge_status.native_operations reports active workers and the last timeout.
+
+No capture ticket is issued on capture failure. A timed-out read sends no input. If an invocation, edit or focus request times out, its result is unknown: the session stops, and the client must inspect the application/dialog before a new owner-authorized task. Never repeat the uncertain action automatically. ESC/F12 also stops the worker for an in-progress mutation.
+
+The input indicator appears on every monitor before authorized input or a live preview. Each monitor retains its own border and centered banner above later fullscreen/topmost previews, without taking focus. bridge_status.control_indicator_displays reports actual monitor bounds and overlay handles. Capture exclusion of the layered indicator is best-effort; the fullscreen preview itself still requires successful capture exclusion.
+
+Opt-in regression using only a disposable app with an intentionally blocked UIA provider:
+
+```powershell
+python scripts/live_timeout_test.py --run --out work/live-timeout-verification
+```
+
+v0.4.7 checks include 51 unit tests, 22-tool stdio handshake, the real provider timeout/recovery check, 16 input/lifecycle cases and six desktop/dialog groups on two Windows 10 monitors. Desktop checks verify each indicator's physical monitor bounds and stacking above individual/panoramic fullscreen previews.
 
 ### Dialogs and fullscreen desktop
 

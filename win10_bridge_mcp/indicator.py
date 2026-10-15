@@ -10,6 +10,13 @@ _lock = threading.Lock()
 _process = None
 _closed = None
 _target = None
+_state_lock = threading.Lock()
+_monitors = []
+
+
+def status():
+    with _state_lock:
+        return {'active': active(), 'monitors': [dict(m) for m in _monitors] if active() else []}
 
 
 def mark_target(hwnd, x, y):
@@ -126,26 +133,22 @@ def _render(width, height, origin_x=0, origin_y=0):
 
 
 def _run(closed, ready, errors):
+    global _monitors
     windows = []
     try:
         import ctypes as ct
         from ctypes import wintypes as wt
-        from . import windows_native as native
+        from . import windows_native as native, desktop
         u, g = native.U, native.G
-        monitors = []
-        callback_type = ct.WINFUNCTYPE(wt.BOOL, wt.HANDLE, wt.HDC, ct.POINTER(native.RECT), wt.LPARAM)
-        @callback_type
-        def collect(_, __, rect, ___):
-            r = rect.contents
-            monitors.append((r.left, r.top, r.right-r.left, r.bottom-r.top))
-            return True
-        u.EnumDisplayMonitors.argtypes = (wt.HDC, ct.c_void_p, callback_type, wt.LPARAM)
-        if not u.EnumDisplayMonitors(None, None, collect, 0) or not monitors:
-            raise RuntimeError('No interactive monitor available')
+        monitor_info = desktop.list_monitors()
+        monitors = [(m['x'], m['y'], m['width'], m['height']) for m in monitor_info]
         u.CreateWindowExW.argtypes = (wt.DWORD, wt.LPCWSTR, wt.LPCWSTR, wt.DWORD, ct.c_int, ct.c_int, ct.c_int, ct.c_int, wt.HWND, wt.HMENU, wt.HINSTANCE, ct.c_void_p)
         u.CreateWindowExW.restype = wt.HWND
         u.DestroyWindow.argtypes = (wt.HWND,)
         u.SetWindowPos.argtypes = (wt.HWND, wt.HWND, ct.c_int, ct.c_int, ct.c_int, ct.c_int, wt.UINT)
+        u.SetWindowPos.restype = wt.BOOL
+        u.SetWindowDisplayAffinity.argtypes = (wt.HWND, wt.DWORD)
+        u.SetWindowDisplayAffinity.restype = wt.BOOL
         class SIZE(ct.Structure):
             _fields_ = [('cx', ct.c_long), ('cy', ct.c_long)]
         class BLEND(ct.Structure):
@@ -183,13 +186,27 @@ def _run(closed, ready, errors):
             u.SetPropW(hwnd, 'TaskKitMCP.InternalView', 1)
             windows.append(hwnd)
             paint(hwnd,x,y,width,height)
+        with _state_lock:
+            _monitors = []
+            for m, hwnd in zip(monitor_info, windows):
+                excluded = bool(u.SetWindowDisplayAffinity(hwnd, 0x11))
+                _monitors.append(dict(m, hwnd=int(hwnd), capture_excluded=excluded,
+                                      capture_excluded_error=0 if excluded else ct.get_last_error()))
         ready.set()
         painted_target=_target
+        last_raise = 0
         message = wt.MSG()
         u.PeekMessageW.argtypes = (ct.POINTER(wt.MSG), wt.HWND, wt.UINT, wt.UINT, wt.UINT)
         u.DispatchMessageW.argtypes = (ct.POINTER(wt.MSG),)
         u.DispatchMessageW.restype = ct.c_ssize_t
         while not closed.wait(.03):
+            # A later fullscreen/topmost preview can cover an existing topmost
+            # indicator. Keep every monitor's banner above it without focus.
+            if time.monotonic() - last_raise >= .25:
+                for hwnd in windows:
+                    if not u.SetWindowPos(hwnd, wt.HWND(-1), 0, 0, 0, 0, 0x1 | 0x2 | 0x10 | 0x40):
+                        raise ct.WinError()
+                last_raise = time.monotonic()
             current=_target if _target and time.monotonic()<_target[3] else None
             if current!=painted_target:
                 for hwnd, bounds in zip(windows,monitors):paint(hwnd,*bounds)
@@ -205,6 +222,8 @@ def _run(closed, ready, errors):
         for hwnd in windows:
             try:u.DestroyWindow(hwnd)
             except Exception:pass
+        with _state_lock:
+            _monitors = []
         closed.set()
 
 
