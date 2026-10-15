@@ -10,7 +10,7 @@ This is an independent alternative workflow for people affected by built-in Comp
 
 1. Install Python 3.11 or later with Tkinter and the Windows `py` launcher. Have the Codex CLI available for MCP registration.
 2. [Download the source ZIP](https://github.com/Longtran2404/taskkit-windows-computer-mcp/archive/refs/heads/main.zip), extract it and open PowerShell in the extracted folder. Review the source before running it.
-3. Run `powershell -NoProfile -File .\scripts\install_windows.ps1 -InstallCodex`. If your local execution policy blocks the script, review and unblock the downloaded files according to your own Windows policy; this installer does not change execution policy.
+3. After reviewing the downloaded source, run `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_windows.ps1 -InstallCodex`. The execution-policy setting applies only to that installer process; it does not change the saved Windows policy. On a managed machine, follow your organization's script policy.
 4. Reconnect the MCP or restart Codex once. A new install allows only Notepad and has physical input disabled. Existing local configuration is preserved on update.
 5. To authorize a control session, edit `%USERPROFILE%\Win10_ComputerBridge\bridge_config.json`:
 
