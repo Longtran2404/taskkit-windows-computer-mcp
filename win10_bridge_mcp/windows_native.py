@@ -15,7 +15,7 @@ import time
 import threading
 
 from PIL import Image as PILImage
-from .policy import Rect, drag_points, MAX_CAPTURE_PIXELS
+from .policy import Rect, drag_points, MAX_CAPTURE_PIXELS, process_allowed
 
 if sys.platform != "win32":
     raise RuntimeError("Windows 10/11 interactive desktop required")
@@ -221,7 +221,7 @@ def enumerate_windows(allowed: frozenset[str]) -> list[Window]:
         pid = wt.DWORD()
         U.GetWindowThreadProcessId(hwnd, ct.byref(pid))
         exe = executable(pid.value)
-        if exe not in allowed:
+        if not process_allowed(exe, allowed):
             return True
         rect = RECT()
         if not U.GetWindowRect(hwnd, ct.byref(rect)):

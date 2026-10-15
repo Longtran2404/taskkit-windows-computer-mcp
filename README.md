@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.4
+# TaskKit.vn Windows Computer Bridge MCP v0.4.5
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -23,6 +23,18 @@ Set the desired mode only in the local bridge_config.json. Example after owner a
 ```
 
 Physical mouse/keyboard input shares the real desktop. Background PrintWindow capture can fail in GPU CAD/3D viewports. No credential access, binary patching, administrative rights or network listener is required.
+
+## All applications
+
+The owner can enable all applications without maintaining a process list:
+
+```json
+{"allow_processes":["*"],"mouse_control_mode":"foreground_session"}
+```
+
+Set this in the local JSON file selected by WIN10_BRIDGE_CONFIG. Codex's MCP environment must point to that file; restart/reconnect the running MCP once after a package or environment update. bridge_status reports application_scope=all_applications. Newly opened applications are included automatically. Existing process-name lists still work, and a new installation remains restricted with input disabled until the owner chooses otherwise.
+
+This selects applications on the normal Windows desktop; it does not bypass Windows secure desktop, elevation/UIPI or unsupported GPU capture. ESC/F12 cancellation, explicit new-task restart, fresh single-use captures, foreground verification and pointer hit checks remain active for every application.
 
 ## Tools
 

@@ -10,9 +10,9 @@ def read_state(out):
  try:
   state=json.loads((out/'fixture.json').read_text(encoding='utf-8'));read_state.cached=state;return state
  except (FileNotFoundError,PermissionError,json.JSONDecodeError):return getattr(read_state,'cached',None)
-async def main(out):
+async def main(out, all_apps=False):
  out.mkdir(parents=True,exist_ok=True)
- cfg=out/'config.json';cfg.write_text(json.dumps({'allow_processes':['python.exe'],'mouse_control_mode':'foreground_session'}))
+ cfg=out/'config.json';cfg.write_text(json.dumps({'allow_processes':['*'] if all_apps else ['python.exe'],'mouse_control_mode':'foreground_session'}))
  fixture=subprocess.Popen([sys.executable,str(Path(__file__).with_name('live_mouse_fixture.py')),'--out',str(out),'--keep-open-on-escape'])
  try:
   for _ in range(100):
@@ -111,7 +111,7 @@ async def main(out):
     await replace_fixture_text('Restart sau đóng preview thành công');results.append('preview_close_restart')
     await capture('after_restart.png')
     await call('emergency_release',{})
-    (out/'report.json').write_text(json.dumps({'passed':results,'count':len(results),'version':status['version']}),encoding='utf-8')
+    (out/'report.json').write_text(json.dumps({'passed':results,'count':len(results),'version':status['version'],'application_scope':'all_applications' if all_apps else 'selected_applications'}),encoding='utf-8')
     print('ALL_LIVE_CHECKS_PASS',len(results),flush=True)
  finally:
   # Only the explicitly spawned test-fixture process belongs to this runner.
@@ -122,7 +122,7 @@ async def main(out):
   if fixture.poll() is None:fixture.terminate()
   fixture.wait(timeout=10)
 if __name__=='__main__':
- p=argparse.ArgumentParser();p.add_argument('--run',action='store_true');p.add_argument('--out',type=Path,default=Path.cwd()/'work/live-input-verification');a=p.parse_args()
+ p=argparse.ArgumentParser();p.add_argument('--run',action='store_true');p.add_argument('--all-apps',action='store_true');p.add_argument('--out',type=Path,default=Path.cwd()/'work/live-input-verification');a=p.parse_args()
  if not a.run:p.error('Explicit --run required; this test occupies physical input')
- asyncio.run(main(a.out.resolve()))
+ asyncio.run(main(a.out.resolve(),a.all_apps))
 

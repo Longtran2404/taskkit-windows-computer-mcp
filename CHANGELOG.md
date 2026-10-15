@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.5 - 2026-10-15
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Add explicit owner-selected allow_processes=["*"] to support all identifiable applications, including applications opened later, without per-executable configuration.
+- Apply the same scope to native window discovery, capture, input, UI Automation, preview and Explorer directory opening.
+- Expose application_scope in bridge_status. Preserve selected-app mode and disabled-input defaults for new installations.
+- Keep emergency cancellation, explicit new-task restart, fresh capture tickets, foreground and hit checks unchanged.
+- Add wildcard validation, native enumeration and configuration regression tests; add --all-apps to the real Windows input/lifecycle fixture.
+- 37 unit tests and 16 real input/lifecycle cases pass locally in all-application mode. A new application opened after the stdio server starts is discovered and captured with input still disabled.
+
 ## 0.4.4 - 2026-10-15
 
 Developed by TaskKit.vn - Minh Long Tran.

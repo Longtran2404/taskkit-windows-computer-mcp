@@ -88,6 +88,8 @@ class CaptureRegistry:
 def normalize_allowlist(values: object) -> frozenset[str]:
     if not isinstance(values, list) or not values:
         raise ValueError("allow_processes must be a nonempty JSON array")
+    if values == ["*"]:
+        return frozenset({"*"})
     result = set()
     for raw in values:
         if not isinstance(raw, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", raw):
@@ -97,6 +99,11 @@ def normalize_allowlist(values: object) -> frozenset[str]:
             name += ".exe"
         result.add(name)
     return frozenset(result)
+
+
+def process_allowed(executable: str | None, allowed: frozenset[str]) -> bool:
+    """Wildcard is an explicit local owner choice, not a name/pattern expansion."""
+    return bool(executable) and ("*" in allowed or executable.lower() in allowed)
 
 
 def parse_modifiers(value: str) -> tuple[str, ...]:

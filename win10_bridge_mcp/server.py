@@ -15,7 +15,7 @@ from typing import Literal
 from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ImageContent, TextContent
 
-from .policy import CaptureRegistry, normalize_allowlist, validate_mouse
+from .policy import CaptureRegistry, normalize_allowlist, validate_mouse, process_allowed
 
 APP_NAME = "TaskKit.vn Windows Computer Bridge MCP"
 mcp = FastMCP(APP_NAME)
@@ -66,6 +66,7 @@ def bridge_status() -> dict:
         "session_stopped": (backend().SESSION_STOP.is_set() or viewer.stopped()) if cfg["mouse_control_mode"] == "foreground_session" else None,
         "new_session_tool": "start_control_session (only after owner requests a new task; never retry the cancelled task automatically)",
         "allowed_processes": sorted(cfg["allowed"]),
+        "application_scope": "all_applications" if "*" in cfg["allowed"] else "selected_applications",
         "full_mouse": ["move", "click", "double_click", "drag", "hold", "scroll vertical", "scroll horizontal", "left", "right", "middle", "x1", "x2", "ctrl", "shift", "alt", "space"],
         "concurrent_desktop_mouse": False,
         "emergency_stop": "Esc or F12 aborts input; Esc closes preview; buttons released in finally",
@@ -76,7 +77,11 @@ def bridge_status() -> dict:
 
 @mcp.tool()
 def inspect_windows() -> dict:
-    """List only explicitly allowlisted, non-minimized desktop windows."""
+    """List visible non-minimized windows in the owner's application scope.
+
+    allow_processes=["*"] includes all identifiable applications, including
+    newly opened ones. Otherwise only the configured process names are listed.
+    """
     cfg = load_config()
     wins = backend().enumerate_windows(cfg["allowed"])
     return {"windows": [
@@ -465,12 +470,12 @@ def list_drives() -> dict:
 def open_directory(path: str) -> dict:
     """Open an existing absolute local directory in Windows Explorer.
 
-    Requires explorer.exe explicitly allowed and foreground_session mode.
+    Requires explorer.exe or all applications allowed and foreground_session mode.
     No files/executables/URLs/UNC destinations; Esc stops this action too.
     """
     cfg = load_config()
-    if cfg["mouse_control_mode"] != "foreground_session" or "explorer.exe" not in cfg["allowed"]:
-        raise PermissionError("Owner must enable foreground_session and allow explorer.exe")
+    if cfg["mouse_control_mode"] != "foreground_session" or not process_allowed("explorer.exe", cfg["allowed"]):
+        raise PermissionError("Owner must enable foreground_session and allow explorer.exe or all applications")
     target = Path(path)
     if not target.is_absolute() or str(target).startswith("\\\\") or not target.is_dir():
         raise ValueError("Existing absolute local directory required")

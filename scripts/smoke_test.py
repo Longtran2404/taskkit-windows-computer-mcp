@@ -1,13 +1,15 @@
 """Owner-run live MCP protocol smoke test."""
 import asyncio
 import sys
+import os
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
 async def main():
-    p = StdioServerParameters(command=sys.executable, args=["-m", "win10_bridge_mcp"])
+    env = {key: os.environ[key] for key in ("WIN10_BRIDGE_CONFIG", "PYTHONPATH") if key in os.environ}
+    p = StdioServerParameters(command=sys.executable, args=["-m", "win10_bridge_mcp"], env=env)
     async with stdio_client(p) as (reader, writer):
         async with ClientSession(reader, writer) as session:
             await session.initialize()

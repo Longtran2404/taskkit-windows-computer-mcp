@@ -1,6 +1,13 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.4
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.5
 Được phát triển bởi TaskKit.vn - Minh Long Tran.
 Website: https://taskkit.vn
+
+v0.4.5: Chủ máy có thể chọn mọi ứng dụng bằng allow_processes = ["*"].
+Đặt trong tệp JSON được biến WIN10_BRIDGE_CONFIG của MCP trỏ tới.
+Ứng dụng mở sau cũng hoạt động, không phải thêm từng tên .exe.
+bridge_status báo application_scope = all_applications để kiểm tra.
+Chế độ này vẫn giữ ESC/F12, xác minh cửa sổ và ảnh chụp mới trước thao tác.
+Không vượt giới hạn UAC/màn hình bảo mật Windows hay lỗi chụp GPU.
 
 Đã bổ sung: gõ Unicode tiếng Việt, thay nội dung có chủ đích, phím tắt/Enter/Tab,
 đọc ô/nút UI Automation, thao tác hộp thoại, liệt kê ổ đĩa và mở thư mục.
