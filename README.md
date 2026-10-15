@@ -60,7 +60,7 @@ Opt-in mutation timeout and recovery check (uses physical input only in its own 
 python scripts/live_recovery_test.py --run --out work/live-recovery-verification
 ```
 
-v0.4.8 includes 58 unit tests and the real mutation-timeout -> inspection -> capture -> input check, without an owner restart or uncertain-action replay. Existing checks cover the 22-tool stdio handshake, read timeout, 16 input/lifecycle cases and six desktop/dialog groups on two Windows 10 monitors. Desktop checks verify each indicator's physical monitor bounds and stacking above individual/panoramic fullscreen previews.
+v0.4.8 includes 59 unit tests and the real mutation-timeout -> inspection -> capture -> input check, without an owner restart or uncertain-action replay. Old tickets are invalidated atomically rather than compared by clock timestamps, including on Windows/Python 3.11. Existing checks cover the 22-tool stdio handshake, read timeout, 16 input/lifecycle cases and six desktop/dialog groups on two Windows 10 monitors. Desktop checks verify each indicator's physical monitor bounds and stacking above individual/panoramic fullscreen previews.
 
 ### Dialogs and fullscreen desktop
 

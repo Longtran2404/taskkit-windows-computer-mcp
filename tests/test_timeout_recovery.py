@@ -39,11 +39,24 @@ def test_timeout_recovers_with_inspection_then_fresh_capture_without_restart(env
     server.capture_window(win.id)
     assert not recovery.status()['recovery_required']
     assert not recovery.status()['requires_owner_restart']
-    with pytest.raises(ValueError,match='predates timeout'):server.verify_capture(old.token,win.id,win.rect)
+    with pytest.raises(ValueError,match='Unknown'):server.verify_capture(old.token,win.id,win.rect)
     assert registry._tickets
     newest=max(registry._tickets.values(),key=lambda ticket:ticket.created)
     server.verify_capture(newest.token,win.id,win.rect)
     forbidden.assert_not_called()
+
+
+def test_old_capture_rejected_even_when_clock_does_not_advance(environment,monkeypatch):
+    from win10_bridge_mcp import policy
+    monkeypatch.setattr(policy.time,'monotonic',lambda:123.0)
+    registry,win,_=environment
+    old=registry.issue(win.id,win.rect,'old')
+    recovery.pause('invoke','timeout');server.inspect_windows();server.capture_window(win.id)
+    assert not recovery.status()['recovery_required']
+    with pytest.raises(ValueError,match='Unknown'):server.verify_capture(old.token,win.id,win.rect)
+    fresh=next(iter(registry._tickets.values()))
+    assert fresh.created==old.created
+    server.verify_capture(fresh.token,win.id,win.rect)
 
 
 def test_blank_or_failed_capture_cannot_recover(environment):

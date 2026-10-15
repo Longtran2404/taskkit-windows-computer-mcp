@@ -29,7 +29,7 @@ MOUSE_MUTEX = threading.RLock()
 
 def verify_capture(capture_id, window_id, rect):
     ticket = REGISTRY.verify(capture_id, window_id, rect)
-    recovery.require_capture(ticket)
+    recovery.require_ready()
     return ticket
 
 
@@ -378,7 +378,11 @@ def _capture_window_result(window_id: str) -> CallToolResult:
     png, method, blank = backend().capture_window(win)
     if blank:
         raise RuntimeError("PrintWindow returned a uniform/possibly blank image; NO click token issued")
-    recovery.captured(observation)
+    if recovery.captured(observation):
+        # Invalidate atomically under MOUSE_MUTEX, before issuing this ticket.
+        # Clock timestamps can be equal on Windows/Python 3.11; deleting old
+        # tickets is reliable even with coarse timer resolution.
+        REGISTRY.invalidate_all()
     t = REGISTRY.issue(win.id, win.rect, method)
     info = {"window_id": win.id, "capture_id": t.token,
             "width": win.rect.width, "height": win.rect.height,

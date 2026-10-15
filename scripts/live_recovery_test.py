@@ -81,7 +81,7 @@ async def main(out):
                 status=await call('bridge_status')
                 assert not status['session_stopped'] and not status['timeout_recovery']['recovery_required']
                 stale=await client.call_tool('press_key',{'window_id':wid,'capture_id':old['capture_id'],'key':'tab','dry_run':False})
-                assert stale.isError and 'predates timeout' in stale.content[0].text
+                assert stale.isError and 'Unknown or already used' in stale.content[0].text
                 box=state()['entry'];x,y=box[0]+40-win['rect']['x'],box[1]+10-win['rect']['y']
                 await call('click_left',{'window_id':wid,'capture_id':capture['capture_id'],'x':x,'y':y,'dry_run':False})
                 capture=await call('capture_window',{'window_id':wid})

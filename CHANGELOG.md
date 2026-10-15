@@ -9,7 +9,8 @@ Developed by TaskKit.vn - Minh Long Tran.
 - Expose timeout_recovery independently of session_stopped and add recovery instructions to tool descriptions. Explicitly owner-authorized new tasks still invalidate old tickets and reset recovery history.
 - Reproduce the main-monitor indicator losing topmost style behind fullscreen while the secondary banner remained visible. Create every indicator with WS_EX_TOPMOST immediately; verify both styles and stacking again after application input, plus a real two-screen banner image.
 - Add unit regressions for recovery order, stale tickets, failed/in-flight observations, worker failure and preserved emergency stop. Add an opt-in real UIA mutation-timeout -> inspection -> capture -> physical input fixture, with no owner restart or action replay.
-- 58 unit tests and the real mutation recovery fixture pass locally; preserve the existing stdio, input/lifecycle and two-monitor checks.
+- Invalidate old tickets atomically when observation succeeds, independent of Windows/Python clock resolution. Include a frozen-clock regression.
+- 59 unit tests and the real mutation recovery fixture pass locally; preserve the existing stdio, input/lifecycle and two-monitor checks.
 
 ## 0.4.7 - 2026-10-15
 
