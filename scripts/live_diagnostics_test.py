@@ -30,6 +30,7 @@ async def main(out):
                     result = await client.call_tool(name, args or {})
                     assert not result.isError, (name, result)
                     return json.loads(result.content[0].text), result
+                target = None
                 for _ in range(80):
                     if fixture.poll() is not None:
                         raise RuntimeError('Diagnostic fixture exited before discovery')
