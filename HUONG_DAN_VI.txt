@@ -1,6 +1,19 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.8
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.9
 Được phát triển bởi TaskKit.vn - Minh Long Tran.
 Website: https://taskkit.vn
+
+v0.4.9 - KẾT THÚC PHIÊN KHI AI XONG VIỆC
+- AI phải gọi end_control_session sau khi kiểm tra xong công việc trên máy,
+  trước khi trả lời kết thúc, chờ người dùng hoặc chuyển sang việc không dùng desktop.
+  Quy tắc được gửi trong hướng dẫn khởi tạo MCP và mô tả các công cụ.
+- reason="completed" khi làm xong; reason="handoff" khi bàn giao/chờ người dùng.
+  Dừng thao tác, nhả phím/nút đang giữ, đóng preview và viền/banner mọi màn hình,
+  hủy quyền thao tác của ảnh cũ. Không có hộp hỏi xác nhận; gọi lặp lại vẫn an toàn.
+- Ứng dụng/tài liệu vẫn mở, không tự lưu hay đóng tệp. MCP vẫn kết nối để đọc.
+  Khi chủ máy giao việc điều khiển tiếp, gọi start_control_session và chụp ảnh mới;
+  không yêu cầu xác nhận thêm chỉ để mở phiên sau bàn giao.
+- Kết thúc phiên phụ thuộc AI làm theo quy tắc; không đoán hoàn thành khi client im lặng.
+  ESC/F12 vẫn dừng thật; timeout vẫn được phục hồi bằng kiểm tra/chụp ảnh mới.
 
 v0.4.8 - TIMEOUT KHÔNG TỰ HỦY PHIÊN
 - Khi lệnh nhấn nút/gán chữ/đặt focus quá thời hạn, giữ phiên đang được cho phép.

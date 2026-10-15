@@ -27,6 +27,16 @@ def close_viewer():
     _closed.set()
 
 
+def wait_closed(timeout=2):
+    """Wait for GUI cleanup without clearing the session's stop latch."""
+    if _process is not None:
+        if _process is threading.current_thread():
+            return False
+        _process.join(timeout)
+        return not _process.is_alive()
+    return True
+
+
 def stopped():
     return STOP.is_set() or _closed.is_set() or (_process is not None and not _process.is_alive())
 

@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.8
+# TaskKit.vn Windows Computer Bridge MCP v0.4.9
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -38,7 +38,21 @@ This selects applications on the normal Windows desktop; it does not bypass Wind
 
 ## Tools
 
-bridge_status, start_control_session, inspect_windows, capture_window, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+bridge_status, start_control_session, end_control_session, inspect_windows, capture_window, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+
+### Finish computer work and hand control back
+
+AI clients must call end_control_session after the final computer verification, before their final response, waiting for the owner, or switching to work that no longer uses the desktop. The server sends this requirement in MCP initialization instructions and tool descriptions. It relies on the AI client following the workflow; it does not infer completion from a silent client.
+
+end_control_session(reason="completed") stops input, releases held keys/buttons, closes the preview and every monitor's border/banner, and invalidates all old capture tickets. Use reason="handoff" before waiting for the owner. It signals the stop before waiting for an active input operation, and verifies that the overlay threads have exited. It is idempotent and needs no confirmation. It leaves application windows/documents open and the MCP connection available for read-only inspection; it does not implicitly save documents or close apps.
+
+For a new owner-authorized computer task, call start_control_session and inspect/capture again. The owner's request to continue computer work after handoff authorizes the next session; do not add a separate approval question. Completion never automatically resumes an old operation. Native timeout recovery still uses inspection and a fresh capture within the same session; ESC/F12 cancellation still requires the owner's new instruction.
+
+v0.4.9 verification includes 66 unit tests, the 23-tool stdio handshake with initialization instructions, and a real fixture check that finishing interrupts a held button, releases it, closes overlays, invalidates captures, blocks further input, preserves read-only capture/application state, and allows a new authorized task and handoff.
+
+```powershell
+python scripts/live_end_session_test.py --run --out work/live-end-session-verification
+```
 
 ### Unresponsive applications
 

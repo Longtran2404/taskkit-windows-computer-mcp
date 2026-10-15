@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.9 - 2026-10-16
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Add end_control_session for completed computer work or handoff. Stop before waiting for the input mutex, release held input, invalidate capture tickets and verify preview/indicator threads exit. Keep applications/documents open and MCP read-only inspection connected. Repeated finish calls are safe.
+- Send the finish policy through MCP initialization instructions and tool descriptions: call the finish tool before final response, waiting for the owner or leaving desktop work. Do not infer completion from a silent client or replay cancelled operations.
+- Expose last completion/handoff reason. A new owner-authorized task resets completion state through start_control_session; timeout recovery and ESC/F12 cancellation retain their existing contracts.
+- 66 unit tests, 23-tool handshake and a real same-process fixture verify interrupted hold/release, closed overlays, stale-ticket rejection, blocked post-finish input, available read-only capture, repeated cleanup, application preservation and new-task handoff.
+
 ## 0.4.8 - 2026-10-15
 
 Developed by TaskKit.vn - Minh Long Tran.

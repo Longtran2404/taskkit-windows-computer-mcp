@@ -34,6 +34,8 @@ def close():
         _closed.set()
     if _process is not None:
         _process.join(1)
+        return not _process.is_alive()
+    return True
 
 
 def reset_for_new_session():

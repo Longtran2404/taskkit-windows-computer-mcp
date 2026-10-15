@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "win10-computer-bridge-mcp"
-version = "0.4.8"
+version = "0.4.9"
 description = "TaskKit.vn Windows MCP bridge with screenshots, mouse, Unicode keyboard and UI Automation"
 authors = [{name = "TaskKit.vn - Minh Long Tran"}]
 requires-python = ">=3.11"

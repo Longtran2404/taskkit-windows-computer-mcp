@@ -22,9 +22,20 @@ from .policy import CaptureRegistry, normalize_allowlist, validate_mouse, proces
 from . import recovery
 
 APP_NAME = "TaskKit.vn Windows Computer Bridge MCP"
-mcp = FastMCP(APP_NAME)
+SESSION_FINISH_INSTRUCTIONS = (
+    'After the final verification of computer work, before ending your response, '
+    'waiting for the owner, or switching to work that no longer uses the desktop, '
+    'call end_control_session. Close TaskKit overlays and release controls while '
+    'leaving application documents open. Do not leave the control session armed '
+    'between tasks. For a new owner-authorized computer task, call '
+    'start_control_session, inspect windows and capture again. Never replay a '
+    'cancelled or uncertain operation. A native timeout is recovered by inspection '
+    'and a fresh capture, not by asking the owner to restart.'
+)
+mcp = FastMCP(APP_NAME, instructions=SESSION_FINISH_INSTRUCTIONS)
 REGISTRY = CaptureRegistry()
 MOUSE_MUTEX = threading.RLock()
+_session_end_reason = None
 
 
 def verify_capture(capture_id, window_id, rect):
@@ -44,6 +55,12 @@ def tool(**options):
         @wraps(function)
         async def dispatch(*args, **kwargs):
             return await anyio.to_thread.run_sync(partial(function, *args, **kwargs))
+        if function.__name__ not in {'end_control_session', 'emergency_release', 'close_live_view'}:
+            dispatch.__doc__ = (function.__doc__ or '') + (
+                '\n\nWhen computer work is finished or you are handing control back '
+                'to the owner, call end_control_session before your final response '
+                'or waiting for user input. Leave application documents open.'
+            )
         mcp.tool(**options)(dispatch)
         return function
     return register
@@ -78,7 +95,8 @@ def bridge_status() -> dict:
     Timeout alone never cancels the authorized task. If timeout_recovery is
     required, inspect_windows then capture_window and continue without asking
     for owner restart. session_stopped still means Esc/F12/preview cancellation;
-    that stop requires a new owner-authorized task and is never cleared by reads.
+    that stop, or a finished end_control_session, requires a new owner-authorized
+    task and is never cleared by reads. End control when finished or waiting.
     """
     cfg = load_config()
     from . import __version__
@@ -92,6 +110,8 @@ def bridge_status() -> dict:
         "control_indicator_displays": indicator.status(),
         "native_operations": native_worker.status(),
         "timeout_recovery": recovery.status(),
+        "session_lifecycle": {"end_tool": "end_control_session", "last_end_reason": _session_end_reason,
+                              "finish_policy": "Call end_control_session when done, before final response, waiting for the owner, or leaving desktop work"},
         "control_indicator": "automatic click-through monitor borders + TaskKit MCP in use - ESC to cancel.",
         "developed_by": "TaskKit.vn - Minh Long Tran",
         "homepage": "https://taskkit.vn",
@@ -165,7 +185,7 @@ def capture_desktop(monitor_id: str = "all", max_edge: int = 4096) -> CallToolRe
 
 @tool()
 def start_control_session() -> dict:
-    """Start a NEW owner-authorized control task after Esc/F12 or preview close.
+    """Start a NEW owner-authorized task after completion, Esc/F12 or preview close.
 
     Esc cancels the current task: never call this automatically to retry it.
     Use only when the owner explicitly asks to start/try again or gives a new
@@ -175,6 +195,7 @@ def start_control_session() -> dict:
     A native timeout does NOT need this tool: inspect_windows and capture_window
     recover the current authorized task without asking the owner to restart it.
     """
+    global _session_end_reason
     cfg = load_config()
     if cfg["mouse_control_mode"] != "foreground_session":
         raise PermissionError("Owner must already enable foreground_session in local config")
@@ -182,9 +203,46 @@ def start_control_session() -> dict:
         REGISTRY.invalidate_all()
         backend().start_new_session()
         recovery.reset()
+        _session_end_reason = None
     return {"started": True, "session_stopped": False, "old_captures_invalidated": True,
             "next_step": "Inspect windows and capture again before any input",
             "note": "New task only; cancelled actions are never replayed"}
+
+
+@tool()
+def end_control_session(reason: Literal['completed', 'handoff'] = 'completed') -> dict:
+    """Finish computer control when done or before waiting for the owner.
+
+    REQUIRED before the final response or leaving desktop work: stop input,
+    release held keys/buttons, close all TaskKit borders/banner and preview,
+    invalidate capture tickets. Application windows/documents remain open.
+    Idempotent; no confirmation. MCP stays connected for read-only inspection.
+    A new owner-authorized task can use start_control_session and fresh captures.
+    Do not use this as timeout recovery or replay pending operations.
+    """
+    global _session_end_reason
+    from . import indicator, viewer
+    if reason not in {'completed', 'handoff'}:
+        raise ValueError('reason must be completed or handoff')
+    native = backend()
+    # Signal before waiting for the mutex: an in-flight hold/drag/UIA mutation
+    # must stop and release its input rather than make shutdown wait for it.
+    native.SESSION_STOP.set()
+    native.release_all()
+    with MOUSE_MUTEX:
+        native.SESSION_STOP.set()
+        native.release_all()
+        REGISTRY.invalidate_all()
+        viewer.close_viewer()
+        preview_closed = viewer.wait_closed()
+        indicator_closed = indicator.close()
+        _session_end_reason = reason
+    if not preview_closed or not indicator_closed:
+        raise RuntimeError('Session input stopped and captures invalidated, but a TaskKit overlay thread has not exited. Call end_control_session again to finish cleanup; do not rearm input.')
+    return {"ended": True, "reason": reason, "session_stopped": True,
+            "preview_closed": True, "indicator_closed": True, "captures_invalidated": True,
+            "applications_left_open": True, "mcp_connected": True,
+            "next_step": "For a new owner-authorized computer task, start_control_session then inspect and capture again"}
 
 
 def require_session(cfg):

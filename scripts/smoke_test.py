@@ -12,7 +12,8 @@ async def main():
     p = StdioServerParameters(command=sys.executable, args=["-m", "win10_bridge_mcp"], env=env)
     async with stdio_client(p) as (reader, writer):
         async with ClientSession(reader, writer) as session:
-            await session.initialize()
+            initialized = await session.initialize()
+            assert 'end_control_session' in initialized.instructions
             listed = await session.list_tools()
             names = sorted(t.name for t in listed.tools)
             print("MCP TOOLS:", ", ".join(names))
@@ -21,7 +22,7 @@ async def main():
                     "type_text", "press_key", "inspect_controls", "control_action",
                     "open_directory", "list_drives", "save_notepad_text",
                     "click_left", "click_right", "click_middle", "scroll_mouse", "app_control", "start_control_session",
-                    "list_monitors", "capture_desktop"} <= set(names)
+                    "list_monitors", "capture_desktop", "end_control_session"} <= set(names)
             result = await session.call_tool("bridge_status")
             print("STATUS:", [getattr(c, "text", None) for c in result.content])
 
