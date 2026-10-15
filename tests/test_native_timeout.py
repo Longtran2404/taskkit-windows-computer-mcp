@@ -4,7 +4,14 @@ import threading
 from types import SimpleNamespace
 from unittest.mock import Mock
 import pytest
-from win10_bridge_mcp import native_worker as worker, server
+from win10_bridge_mcp import native_worker as worker, server, recovery
+
+
+@pytest.fixture(autouse=True)
+def reset_recovery():
+    recovery.reset()
+    yield
+    recovery.reset()
 
 
 class BlockedProcess:
@@ -38,7 +45,7 @@ def test_read_timeout_kills_worker_without_latching_or_retry(monkeypatch):
 
 
 @pytest.mark.skipif(__import__('sys').platform != 'win32', reason='Windows cancellation')
-def test_mutation_timeout_stops_session_and_never_replays(monkeypatch):
+def test_mutation_timeout_requires_observation_without_stopping_or_replay(monkeypatch):
     from win10_bridge_mcp import windows_native as native
     stop = threading.Event()
     release = Mock()
@@ -49,9 +56,22 @@ def test_mutation_timeout_stops_session_and_never_replays(monkeypatch):
     monkeypatch.setattr(worker.subprocess, 'Popen', start)
     with pytest.raises(TimeoutError, match='Result unknown'):
         worker.call('invoke', {'hwnd': 1}, mutating=True, timeout=.01)
-    assert stop.is_set() and process.killed
+    assert not stop.is_set() and process.killed
+    assert recovery.status()['recovery_required']
     start.assert_called_once(); release.assert_called_once()
     assert worker.status()['last_failure']['result_unknown'] is True
+
+
+@pytest.mark.skipif(__import__('sys').platform != 'win32', reason='Windows cancellation')
+def test_worker_exit_requires_observation_without_emergency_latch(monkeypatch):
+    from win10_bridge_mcp import windows_native as native
+    stop=threading.Event()
+    monkeypatch.setattr(native,'SESSION_STOP',stop)
+    monkeypatch.setattr(native,'_stop_if_needed',lambda:None)
+    process=SimpleNamespace(pid=999,returncode=2,poll=lambda:2,communicate=lambda **kw:(b'',b''))
+    monkeypatch.setattr(worker.subprocess,'Popen',lambda *a,**kw:process)
+    with pytest.raises(RuntimeError,match='inspect_windows'):worker.call('invoke',{'hwnd':1},mutating=True)
+    assert not stop.is_set() and recovery.status()['recovery_required']
 
 
 @pytest.mark.skipif(__import__('sys').platform != 'win32', reason='Windows cancellation')

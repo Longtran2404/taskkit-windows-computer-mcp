@@ -179,7 +179,10 @@ def _run(closed, ready, errors):
                 if bitmap:g.DeleteObject(bitmap)
                 g.DeleteDC(dc)
         for x, y, width, height in monitors:
-            hwnd = u.CreateWindowExW(0x80000 | 0x20 | 0x08000000 | 0x80, 'STATIC', 'TaskKit MCP input indicator', 0x80000000 | 0x08000000, x, y, width, height, None, None, None, None)
+            # Establish topmost at creation. Promoting the first overlay only
+            # after showing it can leave that monitor below a later fullscreen
+            # window even when SetWindowPos reports success on Windows 10.
+            hwnd = u.CreateWindowExW(0x8 | 0x80000 | 0x20 | 0x08000000 | 0x80, 'STATIC', 'TaskKit MCP input indicator', 0x80000000 | 0x08000000, x, y, width, height, None, None, None, None)
             if not hwnd:raise ct.WinError()
             u.SetPropW.argtypes = (wt.HWND, wt.LPCWSTR, wt.HANDLE)
             u.SetPropW.restype = wt.BOOL

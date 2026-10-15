@@ -19,11 +19,18 @@ from mcp.server.fastmcp import FastMCP
 from mcp.types import CallToolResult, ImageContent, TextContent
 
 from .policy import CaptureRegistry, normalize_allowlist, validate_mouse, process_allowed
+from . import recovery
 
 APP_NAME = "TaskKit.vn Windows Computer Bridge MCP"
 mcp = FastMCP(APP_NAME)
 REGISTRY = CaptureRegistry()
 MOUSE_MUTEX = threading.RLock()
+
+
+def verify_capture(capture_id, window_id, rect):
+    ticket = REGISTRY.verify(capture_id, window_id, rect)
+    recovery.require_capture(ticket)
+    return ticket
 
 
 def tool(**options):
@@ -66,7 +73,13 @@ def backend():
 
 @tool()
 def bridge_status() -> dict:
-    """Read-only bridge capabilities and safety settings; no mouse movement."""
+    """Read-only bridge capabilities, owner cancellation and timeout recovery.
+
+    Timeout alone never cancels the authorized task. If timeout_recovery is
+    required, inspect_windows then capture_window and continue without asking
+    for owner restart. session_stopped still means Esc/F12/preview cancellation;
+    that stop requires a new owner-authorized task and is never cleared by reads.
+    """
     cfg = load_config()
     from . import __version__
     from . import indicator, viewer, native_worker
@@ -78,6 +91,7 @@ def bridge_status() -> dict:
         "control_indicator_active": indicator.active(),
         "control_indicator_displays": indicator.status(),
         "native_operations": native_worker.status(),
+        "timeout_recovery": recovery.status(),
         "control_indicator": "automatic click-through monitor borders + TaskKit MCP in use - ESC to cancel.",
         "developed_by": "TaskKit.vn - Minh Long Tran",
         "homepage": "https://taskkit.vn",
@@ -105,16 +119,21 @@ def inspect_windows() -> dict:
 
     allow_processes=["*"] includes all identifiable applications, including
     newly opened ones. Otherwise only the configured process names are listed.
+    After an uncertain native timeout, inspect here then capture_window of the
+    current target/dialog to recover the same task without owner restart.
     """
     cfg = load_config()
     native = backend()
+    observation = recovery.observation()
     wins = native.enumerate_windows(cfg["allowed"])
-    return {"windows": [
+    result = {"windows": [
         {"window_id": w.id, "title": w.title, "exe": w.exe,
          "pid": w.pid, "rect": {"x": w.rect.left, "y": w.rect.top,
                               "width": w.rect.width, "height": w.rect.height},
          **native.window_details(w, wins)}
         for w in wins]}
+    recovery.inspected(observation)
+    return result
 
 
 @tool()
@@ -153,6 +172,8 @@ def start_control_session() -> dict:
     computer-control task. No input, focus change or queued-action replay.
     Invalidates all old capture IDs. Inspect and capture again before input.
     The local configuration must already authorize foreground_session.
+    A native timeout does NOT need this tool: inspect_windows and capture_window
+    recover the current authorized task without asking the owner to restart it.
     """
     cfg = load_config()
     if cfg["mouse_control_mode"] != "foreground_session":
@@ -160,6 +181,7 @@ def start_control_session() -> dict:
     with MOUSE_MUTEX:
         REGISTRY.invalidate_all()
         backend().start_new_session()
+        recovery.reset()
     return {"started": True, "session_stopped": False, "old_captures_invalidated": True,
             "next_step": "Inspect windows and capture again before any input",
             "note": "New task only; cancelled actions are never replayed"}
@@ -190,6 +212,8 @@ def control_action(window_id: str, capture_id: str, automation_id: str,
 
     First inspect_controls and capture. action is set_value or invoke. Passwords
     are excluded. Invocation alone does not certify that a save/open succeeded.
+    On timeout, inspect_windows then capture_window and continue the authorized
+    task. Do not ask to restart solely for timeout or repeat an uncertain invoke.
     """
     from . import ui_access
     if action not in {"set_value", "invoke"} or len(value) > 4000:
@@ -198,7 +222,7 @@ def control_action(window_id: str, capture_id: str, automation_id: str,
     native = backend()
     with MOUSE_MUTEX:
         win = native.get_window(window_id, cfg["allowed"])
-        REGISTRY.verify(capture_id, window_id, win.rect)
+        verify_capture(capture_id, window_id, win.rect)
         if dry_run:
             return {"dry_run": True, "action": action, "automation_id": automation_id}
         require_session(cfg)
@@ -230,7 +254,7 @@ def app_control(window_id: str, capture_id: str, automation_id: str = "",
         native=require_session(cfg)
         win=native.get_window(window_id,cfg["allowed"])
         native.require_unblocked(win)
-        REGISTRY.verify(capture_id,window_id,win.rect)
+        verify_capture(capture_id,window_id,win.rect)
         controls=[c for c in ui_access.inspect(win.hwnd) if (c["automation_id"]==automation_id if automation_id else c["name"]==control_name)
                   and c["control_type"]==(50004 if action=="set_value" else 50000)]
         if len(controls)!=1 or not controls[0]["enabled"]:
@@ -272,7 +296,7 @@ def save_notepad_text(window_id: str, capture_id: str, path: str, open_saved: bo
         win = native.get_window(window_id, cfg["allowed"])
         if win.exe != "notepad.exe":
             raise ValueError("This semantic save only supports classic Notepad")
-        REGISTRY.verify(capture_id, window_id, win.rect)
+        verify_capture(capture_id, window_id, win.rect)
         text = ui_access.value(win.hwnd, "15")
         if len(text) > 1_000_000:
             raise ValueError("Notepad buffer too large")
@@ -340,17 +364,21 @@ def capture_window(window_id: str) -> CallToolResult:
 
     GPU viewports may be blank; verify image visually before using coordinates.
     MCP screenshot bytes are transferred to the AI client, not solely kept local.
+    After timeout, inspect_windows first. A successful fresh capture then clears
+    the timeout observation gate, without clearing Esc/F12 or replaying input.
     """
     with MOUSE_MUTEX:
         return _capture_window_result(window_id)
 
 
 def _capture_window_result(window_id: str) -> CallToolResult:
+    observation = recovery.observation()
     cfg = load_config()
     win = backend().get_window(window_id, cfg["allowed"])
     png, method, blank = backend().capture_window(win)
     if blank:
         raise RuntimeError("PrintWindow returned a uniform/possibly blank image; NO click token issued")
+    recovery.captured(observation)
     t = REGISTRY.issue(win.id, win.rect, method)
     info = {"window_id": win.id, "capture_id": t.token,
             "width": win.rect.width, "height": win.rect.height,
@@ -414,7 +442,7 @@ def mouse_action(
         tx, ty = win.rect.absolute(ex, ey)
         if action == "drag" and (ex, ey) == (x, y):
             raise ValueError("Drag must specify a different end point")
-        REGISTRY.verify(capture_id, window_id, win.rect)
+        verify_capture(capture_id, window_id, win.rect)
         summary = f"{win.exe} | {win.title[:80]}\n{action} {button} from {x},{y} to {ex},{ey} | {duration_ms} ms | wheel={wheel_ticks} {wheel_axis} | mods={mods}"
         if dry_run:
             return {"dry_run": True, "summary": summary,
@@ -428,7 +456,7 @@ def mouse_action(
         if cfg["mouse_control_mode"] == "foreground_confirm_each" and not ask_local_consent(summary):
             return {"performed": False, "reason": "Owner declined local Windows consent"}
         refreshed = m.get_window(window_id, cfg["allowed"])
-        REGISTRY.verify(capture_id, refreshed.id, refreshed.rect)
+        verify_capture(capture_id, refreshed.id, refreshed.rect)
         REGISTRY.consume(capture_id)  # one use only; re-capture before next action
         m.apply_mouse(refreshed, action, button, x, y, ex, ey,
                       duration_ms, steps, wheel_ticks, wheel_axis, mods)
@@ -480,7 +508,7 @@ def type_text(window_id: str, capture_id: str, text: str, dry_run: bool = True, 
     native = backend()
     with MOUSE_MUTEX:
         win = native.get_window(window_id, cfg["allowed"])
-        REGISTRY.verify(capture_id, window_id, win.rect)
+        verify_capture(capture_id, window_id, win.rect)
         summary = f"{win.exe} | {win.title[:80]}\nType {len(text)} characters (replace all={replace_all}): {text[:160]}"
         if dry_run:
             return {"dry_run": True, "summary": summary}
@@ -491,7 +519,7 @@ def type_text(window_id: str, capture_id: str, text: str, dry_run: bool = True, 
         if cfg["mouse_control_mode"] == "foreground_confirm_each" and not ask_local_consent(summary):
             return {"performed": False, "reason": "Owner declined local Windows consent"}
         current = native.get_window(window_id, cfg["allowed"])
-        REGISTRY.verify(capture_id, window_id, current.rect)
+        verify_capture(capture_id, window_id, current.rect)
         REGISTRY.consume(capture_id)
         native.apply_text(current, text, replace_all=replace_all)
         return {"performed": True, "characters": len(text), "notice": "Capture again to verify editor contents"}
@@ -514,7 +542,7 @@ def press_key(window_id: str, capture_id: str, key: str, dry_run: bool = True) -
         raise ValueError("Use modifier(s)+one key")
     with MOUSE_MUTEX:
         win = native.get_window(window_id, cfg["allowed"])
-        REGISTRY.verify(capture_id, window_id, win.rect)
+        verify_capture(capture_id, window_id, win.rect)
         if dry_run:
             return {"dry_run": True, "key": key, "window_id": window_id}
         if cfg["mouse_control_mode"] == "disabled":
@@ -524,7 +552,7 @@ def press_key(window_id: str, capture_id: str, key: str, dry_run: bool = True) -
         if cfg["mouse_control_mode"] == "foreground_confirm_each" and not ask_local_consent(f"{win.exe} | {win.title[:80]}\nPress {key}"):
             return {"performed": False, "reason": "Owner declined"}
         current = native.get_window(window_id, cfg["allowed"])
-        REGISTRY.verify(capture_id, window_id, current.rect)
+        verify_capture(capture_id, window_id, current.rect)
         REGISTRY.consume(capture_id)
         native.apply_keys(current, parts)
         return {"performed": True, "key": key, "notice": "Capture again to verify"}
@@ -553,6 +581,7 @@ def open_directory(path: str) -> dict:
     native = backend()
     native.enable_session_stop()
     native._stop_if_needed()
+    recovery.require_ready()
     os.startfile(str(target.resolve()))
     return {"open_requested": True, "path": str(target.resolve()), "notice": "Inspect windows and capture Explorer to verify"}
 

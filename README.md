@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.7
+# TaskKit.vn Windows Computer Bridge MCP v0.4.8
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -44,9 +44,9 @@ bridge_status, start_control_session, inspect_windows, capture_window, capture_d
 
 PrintWindow and UI Automation run in disposable native worker processes with a five-second deadline. A blocked provider is stopped without terminating the application. Native calls do not block the MCP transport: bridge_status, window discovery and emergency stop remain available while another tool is waiting. bridge_status.native_operations reports active workers and the last timeout.
 
-No capture ticket is issued on capture failure. A timed-out read sends no input. If an invocation, edit or focus request times out, its result is unknown: the session stops, and the client must inspect the application/dialog before a new owner-authorized task. Never repeat the uncertain action automatically. ESC/F12 also stops the worker for an in-progress mutation.
+No capture ticket is issued on capture failure. A timed-out read sends no input. If an invocation, edit or focus request times out, its result is unknown: a separate observation gate pauses input while the session remains active. Call inspect_windows, then successfully capture_window of the current target/dialog; verify the image and continue the already authorized task. This needs no owner restart, approval question or start_control_session. Do not repeat the uncertain action automatically. Old capture tickets, failed/blank captures, desktop screenshots and observations already in flight before the failure cannot satisfy recovery. bridge_status.timeout_recovery reports the gate independently of session_stopped. ESC/F12, emergency_release and preview close still cancel the task; observation never clears that cancellation.
 
-The input indicator appears on every monitor before authorized input or a live preview. Each monitor retains its own border and centered banner above later fullscreen/topmost previews, without taking focus. bridge_status.control_indicator_displays reports actual monitor bounds and overlay handles. Capture exclusion of the layered indicator is best-effort; the fullscreen preview itself still requires successful capture exclusion.
+The input indicator appears on every monitor before authorized input or a live preview. Every overlay is created with topmost style, then periodically raised without activation; this fixes the Windows 10 case where the main-screen indicator stayed behind fullscreen while only the secondary-screen banner was visible. Each monitor retains its own border and centered banner without taking focus. bridge_status.control_indicator_displays reports actual monitor bounds and overlay handles. Capture exclusion of the layered indicator is best-effort; the fullscreen preview itself still requires successful capture exclusion.
 
 Opt-in regression using only a disposable app with an intentionally blocked UIA provider:
 
@@ -54,7 +54,13 @@ Opt-in regression using only a disposable app with an intentionally blocked UIA 
 python scripts/live_timeout_test.py --run --out work/live-timeout-verification
 ```
 
-v0.4.7 checks include 51 unit tests, 22-tool stdio handshake, the real provider timeout/recovery check, 16 input/lifecycle cases and six desktop/dialog groups on two Windows 10 monitors. Desktop checks verify each indicator's physical monitor bounds and stacking above individual/panoramic fullscreen previews.
+Opt-in mutation timeout and recovery check (uses physical input only in its own disposable app):
+
+```powershell
+python scripts/live_recovery_test.py --run --out work/live-recovery-verification
+```
+
+v0.4.8 includes 58 unit tests and the real mutation-timeout -> inspection -> capture -> input check, without an owner restart or uncertain-action replay. Existing checks cover the 22-tool stdio handshake, read timeout, 16 input/lifecycle cases and six desktop/dialog groups on two Windows 10 monitors. Desktop checks verify each indicator's physical monitor bounds and stacking above individual/panoramic fullscreen previews.
 
 ### Dialogs and fullscreen desktop
 

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from . import recovery
 
 TIMEOUT_SECONDS = 5.0
 _slots = threading.BoundedSemaphore(2)
@@ -33,8 +34,8 @@ def _failed(operation, reason, uncertain):
 def call(operation, payload, *, mutating=False, timeout=TIMEOUT_SECONDS):
     """A timed-out worker is killed and reaped; the app is never terminated.
 
-    A mutation may already have reached its provider: latch stop and require
-    inspection, never retry the action. Read-only failures keep input state.
+    A mutation may already have reached its provider: require fresh observation,
+    never retry the action. Timeout never sets or clears the owner's stop latch.
     """
     if operation not in OPERATIONS:
         raise ValueError('Unsupported native worker operation')
@@ -42,6 +43,7 @@ def call(operation, payload, *, mutating=False, timeout=TIMEOUT_SECONDS):
     if mutating:
         from . import windows_native as native
         native._stop_if_needed()
+        recovery.require_ready()
     deadline = time.monotonic() + timeout
     if not _slots.acquire(timeout=timeout):
         raise TimeoutError('Native workers busy; no operation was sent. Inspect status before trying again.')
@@ -70,10 +72,10 @@ def call(operation, payload, *, mutating=False, timeout=TIMEOUT_SECONDS):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 if native is not None:
-                    native.SESSION_STOP.set()
                     native.release_all()
+                    recovery.pause(operation, 'timeout')
                 _failed(operation, 'timeout', mutating)
-                suffix = (' Result unknown; inspect windows/dialogs before a new owner-authorized task. Do not replay this action.'
+                suffix = (' Result unknown; session remains active. Call inspect_windows, then capture_window of the current target/dialog and continue the authorized task. No owner restart is needed for timeout. Do not replay this action.'
                           if mutating else ' No input was sent; inspect windows or use capture_desktop to diagnose.')
                 raise TimeoutError(f'Native {operation} timed out after {timeout:g}s; worker stopped.' + suffix)
             try:
@@ -83,9 +85,9 @@ def call(operation, payload, *, mutating=False, timeout=TIMEOUT_SECONDS):
                 message = None
         if process.returncode:
             if native is not None:
-                native.SESSION_STOP.set()
+                recovery.pause(operation, 'worker exited')
             _failed(operation, 'worker exited', mutating)
-            raise RuntimeError(f'Native {operation} worker exited. Inspect the application before another action.')
+            raise RuntimeError(f'Native {operation} worker exited. Session remains active; inspect_windows and capture_window before continuing. Do not replay an uncertain action.')
         result = json.loads(stdout)
         if not result['ok']:
             error_type = {'ValueError': ValueError, 'PermissionError': PermissionError,

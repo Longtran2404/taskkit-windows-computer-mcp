@@ -84,6 +84,7 @@ async def main(out):
                     n.U.EnumWindows(collect,0)
                     for display in displays:
                         assert n.U.IsWindowVisible(display['hwnd']) and not n.U.IsWindowEnabled(display['hwnd'])
+                        assert n.U.GetWindowLongPtrW(display['hwnd'],-20)&0x8,'Monitor indicator lost topmost style'
                         r=n.RECT();assert n.U.GetWindowRect(display['hwnd'],n.ct.byref(r))
                         assert (r.left,r.top,r.right-r.left,r.bottom-r.top)==tuple(display[k] for k in ('x','y','width','height'))
                         assert zorder.index(display['hwnd'])<zorder.index(overlay['live_view']['hwnd']),('Indicator hidden behind fullscreen',display)
@@ -104,6 +105,11 @@ async def main(out):
                             if state().get('text')=='Fullscreen xuyên chuột thành công':break
                             await asyncio.sleep(.05)
                         assert state()['text']=='Fullscreen xuyên chuột thành công'
+                        await asyncio.sleep(.4)
+                        zorder.clear();n.U.EnumWindows(collect,0)
+                        for display in displays:
+                            assert n.U.GetWindowLongPtrW(display['hwnd'],-20)&0x8
+                            assert zorder.index(display['hwnd'])<zorder.index(overlay['live_view']['hwnd']),('Application activation covered a monitor indicator',display)
                 passed.append('single_and_all_monitor_fullscreen_click_through')
                 passed.append('indicator_on_every_monitor_above_fullscreen_without_focus')
                 await call('show_live_view',{'window_id':wid,'source':'window','fullscreen':False})
