@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.5
+# TaskKit.vn Windows Computer Bridge MCP v0.4.6
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -39,6 +39,25 @@ This selects applications on the normal Windows desktop; it does not bypass Wind
 ## Tools
 
 bridge_status, start_control_session, inspect_windows, capture_window, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+
+### Dialogs and fullscreen desktop
+
+- inspect_windows includes enabled, owner_window_id and blocked_by_window_id. When a parent window is disabled by a modal dialog, inspect/capture the reported dialog and operate on its own window_id. Parent input is refused with a routing message; buttons are not automatically confirmed. The window preview follows the blocking dialog visually.
+- list_monitors returns monitor IDs and virtual-desktop bounds, including negative origins.
+- capture_desktop(monitor_id="all") returns one PNG for all screens. Pass a returned monitor ID to capture one screen. Metadata gives origin_x/origin_y, desktop size and image scales. No window input ticket is issued by a desktop screenshot.
+- show_live_view(source="desktop", monitor_id="all", fullscreen=True) opens a panoramic fullscreen preview across all monitors. Select one monitor ID for single-screen fullscreen. Desktop viewing requires owner-authorized all-app scope.
+- Call show_live_view again to switch source, monitor or fullscreen without stopping the task. The windowed preview has Fullscreen, Windowed and All screens buttons; F11 opens fullscreen from the focused preview. Use show_live_view(fullscreen=False, ...) to return without cancelling, or ESC/F12 to close and cancel. bridge_status.live_view reports the actual view state and frame readiness.
+- Fullscreen preview is click-through, excluded from desktop capture to avoid recursion, and fills the selected display bounds. ESC/F12 or closing the preview cancels input; changing view modes does not. Windows secure desktop/UAC and protected capture surfaces remain OS limitations.
+
+Desktop screenshots sent by capture_desktop go to the AI client. show_live_view alone displays frames locally. Inspect and capture the target application/dialog before input; existing foreground, hit-target and single-use capture checks still apply.
+
+Owner-run desktop/dialog verification (temporarily uses its own fixture and all-app scope; captures stay in the local work folder):
+
+```powershell
+python scripts/live_desktop_test.py --run --out work/live-desktop-verification
+```
+
+v0.4.6 verification: 44 unit tests, 22-tool stdio handshake, 16 existing real input/lifecycle cases and five desktop/dialog scenarios. The latter were exercised on two Windows 10 monitors, including actual modal routing/closure, individual and panoramic fullscreen, switching modes without cancelling, capture-excluded/click-through preview and ESC cancellation.
 
 - type_text supports Unicode and explicit replace_all in the focused editor.
 - press_key supports bounded keys and chords, e.g. ctrl+s, ctrl+l, alt+n, enter, tab.

@@ -1,6 +1,19 @@
-TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.5
+TASKKIT.VN WINDOWS COMPUTER BRIDGE MCP v0.4.6
 Được phát triển bởi TaskKit.vn - Minh Long Tran.
 Website: https://taskkit.vn
+
+v0.4.6 - HỘP THOẠI VÀ FULLSCREEN NHIỀU MÀN HÌNH
+- inspect_windows báo cửa sổ bị khóa và blocked_by_window_id của hộp thoại.
+  Chụp và thao tác đúng hộp thoại; preview tự theo hộp thoại đang chặn.
+- list_monitors: xem mã và tọa độ từng màn hình.
+- capture_desktop(monitor_id="all"): ảnh gộp tất cả màn hình gửi về Codex.
+  Chọn một monitor_id để chụp riêng màn hình đó.
+- show_live_view(source="desktop", monitor_id="all", fullscreen=True):
+  xem fullscreen trên mọi màn hình. Preview xuyên chuột và tránh tự chụp lại nó.
+- Gọi show_live_view lại để đổi màn hình/chế độ mà không hủy phiên.
+  F11 mở fullscreen từ preview đang có focus; ESC/F12 hủy phiên.
+  show_live_view(..., fullscreen=False) trở về cửa sổ mà không hủy.
+  bridge_status.live_view cho biết chế độ và ảnh mới đã sẵn sàng hay chưa.
 
 v0.4.5: Chủ máy có thể chọn mọi ứng dụng bằng allow_processes = ["*"].
 Đặt trong tệp JSON được biến WIN10_BRIDGE_CONFIG của MCP trỏ tới.

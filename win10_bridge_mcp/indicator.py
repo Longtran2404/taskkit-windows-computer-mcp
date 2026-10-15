@@ -178,6 +178,9 @@ def _run(closed, ready, errors):
         for x, y, width, height in monitors:
             hwnd = u.CreateWindowExW(0x80000 | 0x20 | 0x08000000 | 0x80, 'STATIC', 'TaskKit MCP input indicator', 0x80000000 | 0x08000000, x, y, width, height, None, None, None, None)
             if not hwnd:raise ct.WinError()
+            u.SetPropW.argtypes = (wt.HWND, wt.LPCWSTR, wt.HANDLE)
+            u.SetPropW.restype = wt.BOOL
+            u.SetPropW(hwnd, 'TaskKitMCP.InternalView', 1)
             windows.append(hwnd)
             paint(hwnd,x,y,width,height)
         ready.set()

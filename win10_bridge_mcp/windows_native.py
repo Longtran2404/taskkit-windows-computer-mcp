@@ -98,6 +98,14 @@ U.WindowFromPoint.argtypes = (POINT,)
 U.WindowFromPoint.restype = wt.HWND
 U.GetAncestor.argtypes = (wt.HWND, wt.UINT)
 U.GetAncestor.restype = wt.HWND
+U.GetWindow.argtypes = (wt.HWND, wt.UINT)
+U.GetWindow.restype = wt.HWND
+U.IsWindowEnabled.argtypes = (wt.HWND,)
+U.IsWindowEnabled.restype = wt.BOOL
+U.GetClassNameW.argtypes = (wt.HWND, wt.LPWSTR, ct.c_int)
+U.GetClassNameW.restype = ct.c_int
+U.GetPropW.argtypes = (wt.HWND, wt.LPCWSTR)
+U.GetPropW.restype = wt.HANDLE
 
 K.OpenProcess.argtypes = (wt.DWORD, wt.BOOL, wt.DWORD)
 K.OpenProcess.restype = wt.HANDLE
@@ -218,6 +226,8 @@ def enumerate_windows(allowed: frozenset[str]) -> list[Window]:
     def check(hwnd: int, _) -> bool:
         if not U.IsWindowVisible(hwnd) or U.IsIconic(hwnd):
             return True
+        if U.GetPropW(hwnd, "TaskKitMCP.InternalView"):
+            return True
         pid = wt.DWORD()
         U.GetWindowThreadProcessId(hwnd, ct.byref(pid))
         exe = executable(pid.value)
@@ -227,14 +237,16 @@ def enumerate_windows(allowed: frozenset[str]) -> list[Window]:
         if not U.GetWindowRect(hwnd, ct.byref(rect)):
             return True
         r = Rect(rect.left, rect.top, rect.right, rect.bottom)
-        if r.width < 100 or r.height < 80 or r.width * r.height > MAX_CAPTURE_PIXELS:
+        owned = bool(U.GetWindow(hwnd, 4))
+        minimum = (32, 24) if owned else (100, 80)
+        if r.width < minimum[0] or r.height < minimum[1] or r.width * r.height > MAX_CAPTURE_PIXELS:
             return True
         n = min(U.GetWindowTextLengthW(hwnd), 1000)
         buf = ct.create_unicode_buffer(n + 2)
         U.GetWindowTextW(hwnd, buf, len(buf))
-        if not buf.value:
+        if not buf.value and not owned:
             return True
-        found.append(Window(hwnd, pid.value, exe, buf.value, r))
+        found.append(Window(hwnd, pid.value, exe, buf.value or "[Untitled dialog]", r))
         return True
 
     cb = WNDENUMPROC(check)
@@ -248,6 +260,26 @@ def get_window(window_id: str, allowed: frozenset[str]) -> Window:
     if len(matches) != 1:
         raise ValueError("Window missing, minimized, or not allowed. Inspect windows again.")
     return matches[0]
+
+
+def window_details(win: Window, windows: list[Window]) -> dict:
+    known = {w.hwnd: w.id for w in windows}
+    owner = U.GetWindow(win.hwnd, 4)
+    popup = U.GetWindow(win.hwnd, 6)
+    enabled = bool(U.IsWindowEnabled(win.hwnd))
+    return {"enabled": enabled, "owner_window_id": known.get(owner),
+            "is_owned_window": bool(owner),
+            "blocked_by_window_id": known.get(popup) if not enabled and popup != win.hwnd else None}
+
+
+def require_unblocked(win: Window) -> None:
+    if not U.IsWindowEnabled(win.hwnd):
+        popup = U.GetWindow(win.hwnd, 6)
+        pid = wt.DWORD()
+        if popup and popup != win.hwnd:
+            U.GetWindowThreadProcessId(popup, ct.byref(pid))
+        target = f"{pid.value}:{popup:x}" if pid.value else "the enabled dialog"
+        raise RuntimeError(f"Window is disabled, usually by a modal dialog. Inspect windows and capture {target}; handle that dialog before returning to the parent window.")
 
 
 def capture_window(win: Window) -> tuple[bytes, str, bool]:
@@ -448,6 +480,7 @@ def release_all() -> None:
 
 def _activate(win: Window) -> None:
     from . import indicator
+    require_unblocked(win)
     enable_session_stop()
     indicator.ensure(SESSION_STOP)
     _stop_if_needed()

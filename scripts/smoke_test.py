@@ -20,7 +20,8 @@ async def main():
                     "mouse_action", "emergency_release", "show_live_view", "close_live_view",
                     "type_text", "press_key", "inspect_controls", "control_action",
                     "open_directory", "list_drives", "save_notepad_text",
-                    "click_left", "click_right", "click_middle", "scroll_mouse", "app_control", "start_control_session"} <= set(names)
+                    "click_left", "click_right", "click_middle", "scroll_mouse", "app_control", "start_control_session",
+                    "list_monitors", "capture_desktop"} <= set(names)
             result = await session.call_tool("bridge_status")
             print("STATUS:", [getattr(c, "text", None) for c in result.content])
 

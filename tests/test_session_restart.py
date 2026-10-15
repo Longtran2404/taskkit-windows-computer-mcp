@@ -32,7 +32,7 @@ def test_read_only_tools_do_not_require_or_restart_input(monkeypatch):
     monkeypatch.setattr(server, 'require_session', forbidden)
     monkeypatch.setattr(server, 'load_config', lambda: {'mouse_control_mode': 'foreground_session', 'allowed': {'notepad.exe'}})
     win = SimpleNamespace(id='w', hwnd=1, title='Test', exe='notepad.exe', pid=1, rect=Rect(0, 0, 100, 100))
-    native = SimpleNamespace(enumerate_windows=lambda _: [win], get_window=lambda *_: win,
+    native = SimpleNamespace(enumerate_windows=lambda _: [win], window_details=lambda *_: {}, get_window=lambda *_: win,
                              capture_window=lambda _: (b'png', 'test', False))
     monkeypatch.setattr(server, 'backend', lambda: native)
     monkeypatch.setattr(ui_access, 'inspect', lambda _: [])

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.6 - 2026-10-15
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Identify disabled parent windows and their blocking dialogs, including small/untitled owned windows. Refuse input to disabled parents and direct inspection to the dialog; window preview follows the active blocking dialog.
+- Add list_monitors and capture_desktop for one screen or all monitors in a single image, with negative-origin coordinates and scale metadata. Desktop capture requires all-app scope and issues no window input ticket.
+- Add desktop/window source selection, single/multi-monitor fullscreen, F11/windowed controls and mode changes without cancelling the session to show_live_view.
+- Fullscreen preview is click-through and excluded from desktop capture. Exclude internal preview/indicator windows from application discovery; expose actual preview geometry and frame readiness in bridge_status.
+- Preserve ESC/F12 cancellation and explicit new-task restart, including fullscreen mode.
+- 44 unit tests, 22-tool stdio handshake and 16 existing real input/lifecycle cases pass. Verify five additional live desktop/dialog scenarios on a two-monitor Windows 10 setup, including preview capture exclusion and physical input through fullscreen preview.
+
 ## 0.4.5 - 2026-10-15
 
 Developed by TaskKit.vn - Minh Long Tran.

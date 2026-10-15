@@ -67,10 +67,13 @@ def bridge_status() -> dict:
         "new_session_tool": "start_control_session (only after owner requests a new task; never retry the cancelled task automatically)",
         "allowed_processes": sorted(cfg["allowed"]),
         "application_scope": "all_applications" if "*" in cfg["allowed"] else "selected_applications",
+        "desktop_view": "list_monitors / capture_desktop / show_live_view(source='desktop', monitor_id='all', fullscreen=True)",
+        "dialog_handling": "inspect_windows reports enabled, owner_window_id and blocked_by_window_id; target and capture the dialog before input",
         "full_mouse": ["move", "click", "double_click", "drag", "hold", "scroll vertical", "scroll horizontal", "left", "right", "middle", "x1", "x2", "ctrl", "shift", "alt", "space"],
         "concurrent_desktop_mouse": False,
         "emergency_stop": "Esc or F12 aborts input; Esc closes preview; buttons released in finally",
         "local_preview": "optional show_live_view / close_live_view; closing stops the authorized session",
+        "live_view": viewer.status(),
         "note": "For uninterrupted concurrent GUI work use a separate VM/workstation; Revit API MCP is preferred for BIM edits."
     }
 
@@ -83,12 +86,41 @@ def inspect_windows() -> dict:
     newly opened ones. Otherwise only the configured process names are listed.
     """
     cfg = load_config()
-    wins = backend().enumerate_windows(cfg["allowed"])
+    native = backend()
+    wins = native.enumerate_windows(cfg["allowed"])
     return {"windows": [
         {"window_id": w.id, "title": w.title, "exe": w.exe,
          "pid": w.pid, "rect": {"x": w.rect.left, "y": w.rect.top,
-                              "width": w.rect.width, "height": w.rect.height}}
+                              "width": w.rect.width, "height": w.rect.height},
+         **native.window_details(w, wins)}
         for w in wins]}
+
+
+@mcp.tool()
+def list_monitors() -> dict:
+    """List actual monitor IDs, primary monitor and virtual-desktop coordinates."""
+    from .desktop import list_monitors, monitor_bounds
+    monitors = list_monitors()
+    bounds = monitor_bounds(monitors)
+    return {"monitors": monitors, "virtual_desktop": {"x": bounds.left, "y": bounds.top,
+            "width": bounds.width, "height": bounds.height}}
+
+
+@mcp.tool(structured_output=False)
+def capture_desktop(monitor_id: str = "all", max_edge: int = 4096) -> CallToolResult:
+    """Screenshot one monitor or all monitors together, including visible dialogs.
+
+    Read-only: no focus or pointer change. Requires owner-selected all-app scope.
+    Returns origin/scales for negative monitor coordinates. No input ticket;
+    inspect and capture the target window/dialog before mouse or keyboard input.
+    Desktop pixels are returned to the AI client, not only kept locally.
+    """
+    from .desktop import capture
+    if "*" not in load_config()["allowed"]:
+        raise PermissionError('Desktop capture requires owner-authorized allow_processes=["*"]')
+    png, info = capture(monitor_id, max_edge)
+    return CallToolResult(content=[TextContent(type="text", text=json.dumps(info)),
+            ImageContent(type="image", mimeType="image/png", data=base64.b64encode(png).decode('ascii'))])
 
 
 @mcp.tool()
@@ -176,6 +208,7 @@ def app_control(window_id: str, capture_id: str, automation_id: str = "",
     with MOUSE_MUTEX:
         native=require_session(cfg)
         win=native.get_window(window_id,cfg["allowed"])
+        native.require_unblocked(win)
         REGISTRY.verify(capture_id,window_id,win.rect)
         controls=[c for c in ui_access.inspect(win.hwnd) if (c["automation_id"]==automation_id if automation_id else c["name"]==control_name)
                   and c["control_type"]==(50004 if action=="set_value" else 50000)]
@@ -244,19 +277,30 @@ def save_notepad_text(window_id: str, capture_id: str, path: str, open_saved: bo
 
 
 @mcp.tool()
-def show_live_view(window_id: str) -> dict:
+def show_live_view(window_id: str = "", source: Literal["window", "desktop"] = "window",
+                   monitor_id: str = "all", fullscreen: bool = False) -> dict:
     """Show a local live preview of one allowed window. Esc closes and stops input.
 
-    Opens a separate Windows window; does not enable physical input or upload frames.
-    A stopped foreground_session cannot be resumed by reopening the preview.
+    source=desktop supports one returned monitor_id or all monitors together.
+    fullscreen=True fills the selected monitor(s); fullscreen is click-through
+    so underlying application input still works. F11 toggles when preview has
+    focus; call again to switch source/monitor/fullscreen without cancelling.
+    Desktop preview requires all-app scope. Frames stay local until capture.
+    A stopped session cannot be resumed by reopening or switching the preview.
     """
     from .viewer import show_viewer
     cfg = load_config()
     if cfg["mouse_control_mode"] == "foreground_session":
         require_session(cfg)
-    backend().get_window(window_id, cfg["allowed"])
+    if source == "window":
+        backend().get_window(window_id, cfg["allowed"])
+    elif source == "desktop":
+        if "*" not in cfg["allowed"]:
+            raise PermissionError('Desktop preview requires owner-authorized all applications')
+    else:
+        raise ValueError('source must be window or desktop')
     with MOUSE_MUTEX:
-        return show_viewer(window_id, cfg["allowed"])
+        return show_viewer(window_id, cfg["allowed"], source, monitor_id, fullscreen)
 
 
 @mcp.tool()
