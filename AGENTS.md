@@ -15,3 +15,5 @@
 - A successful input/invocation is not proof of a completed UI/file operation.
 - diagnose_capture is observation only: no input tickets, timeout recovery reset or session rearm. Never capture the desktop implicitly or outside owner-selected all-app scope. Preserve GPU/protected-surface limitations in community guidance.
 - Run python -m pytest -q and python scripts/smoke_test.py; document live Windows limitations.
+
+- The owner asking to continue/try again or giving a new computer task is sufficient session authorization; never ask a duplicate confirmation. Prefer prepare_control_session(new_task=True) followed by verification of the returned fresh capture. Active-task preparation uses new_task=False. Missing targets are rediscovered without guessing or replay; a cancelled task with no new owner request stays stopped.

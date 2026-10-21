@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.1 - 2026-10-21
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Add prepare_control_session: owner-requested continuation/new work opens a stopped session without another confirmation question, inspects current windows and returns a fresh capture in one call. Active preparation is idempotent and preserves native recovery; missing targets return discovery results and blocking dialogs are captured without input.
+- Distinguish completed/handoff session errors from cancellation. Explain that an existing owner request is sufficient authorization to prepare/start, while old captures and pending input must never be replayed. Preserve held Esc/F12, configured disabled input and cancellation without new owner authorization.
+- Validation: 114 local tests passed, one symlink-privilege skip; 27-tool stdio handshake. A real Windows fixture verifies finish interrupts/releases held input, stale captures remain blocked, owner-requested preparation reopens and captures without another confirmation, and app_control then closes the fixture dialog successfully.
+
+
 ## 0.5.0 - 2026-10-21
 
 Developed by TaskKit.vn - Minh Long Tran.

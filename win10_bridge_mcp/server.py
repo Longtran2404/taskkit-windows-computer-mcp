@@ -27,8 +27,11 @@ SESSION_FINISH_INSTRUCTIONS = (
     'waiting for the owner, or switching to work that no longer uses the desktop, '
     'call end_control_session. Close TaskKit overlays and release controls while '
     'leaving application documents open. Do not leave the control session armed '
-    'between tasks. For a new owner-authorized computer task, call '
-    'start_control_session, inspect windows and capture again. Never replay a '
+    'between tasks. The owner asking to continue, try again, or perform a new '
+    'computer task already authorizes opening its session: do not ask again. '
+    'Call prepare_control_session(new_task=True, window_id=...) to open a stopped '
+    'session, inspect windows and capture again. With an active session use '
+    'new_task=False; this never resets it. start_control_session is also available. Never replay a '
     'cancelled or uncertain operation. A native timeout is recovered by inspection '
     'and a fresh capture, not by asking the owner to restart.'
 )
@@ -119,6 +122,7 @@ def bridge_status() -> dict:
         "native_operations": native_worker.status(),
         "timeout_recovery": recovery.status(),
         "session_lifecycle": {"end_tool": "end_control_session", "last_end_reason": _session_end_reason,
+                              "prepare_tool": "prepare_control_session; owner request is sufficient, no repeated confirmation",
                               "finish_policy": "Call end_control_session when done, before final response, waiting for the owner, or leaving desktop work"},
         "control_indicator": "automatic click-through monitor borders + TaskKit MCP in use - ESC to cancel.",
         "developed_by": "TaskKit.vn - Minh Long Tran",
@@ -247,7 +251,8 @@ def start_control_session() -> dict:
 
     Esc cancels the current task: never call this automatically to retry it.
     Use only when the owner explicitly asks to start/try again or gives a new
-    computer-control task. No input, focus change or queued-action replay.
+    computer-control task. That request IS authorization: call this without asking
+    the owner to confirm again. No input, focus change or queued-action replay.
     Invalidates all old capture IDs. Inspect and capture again before input.
     The local configuration must already authorize foreground_session.
     A native timeout does NOT need this tool: inspect_windows and capture_window
@@ -263,8 +268,56 @@ def start_control_session() -> dict:
         recovery.reset()
         _session_end_reason = None
     return {"started": True, "session_stopped": False, "old_captures_invalidated": True,
+            "requires_owner_confirmation": False,
             "next_step": "Inspect windows and capture again before any input",
             "note": "New task only; cancelled actions are never replayed"}
+
+
+@tool(structured_output=False)
+def prepare_control_session(window_id: str = "", new_task: bool = False) -> CallToolResult:
+    """Prepare the owner's requested task without an extra confirmation question.
+
+    When the owner asks to continue/try again or gives a new computer task, use
+    new_task=True: open a stopped session, inspect windows and capture the target
+    in one call. For an active task use new_task=False: never rearm a cancelled
+    session. Repeated preparation of an active session does not reset it.
+    A stopped session without a new owner request stays stopped. Never replay
+    cancelled/uncertain input. Missing targets return current windows for selection;
+    no application is launched or guessed. No input, focus change or Yes dialog.
+    Local foreground_session authorization is still required.
+    """
+    from . import viewer
+    cfg = load_config()
+    if cfg['mouse_control_mode'] != 'foreground_session':
+        raise PermissionError('Owner must already enable foreground_session in local config')
+    with MOUSE_MUTEX:
+        native = backend()
+        native.enable_session_stop()
+        stopped = native.SESSION_STOP.is_set() or viewer.stopped()
+        restarted = False
+        if stopped:
+            if not new_task:
+                raise InterruptedError('Control session is stopped. If the owner already asked to continue/try again, call prepare_control_session(new_task=True) without another question. Otherwise keep the cancelled task stopped; never replay input.')
+            start_control_session()
+            restarted = True
+        # A held/new Esc must still refuse preparation after the authorization check.
+        native._stop_if_needed()
+        wins = inspect_windows()['windows']
+        info = {'prepared': True, 'restarted': restarted, 'session_stopped': False,
+                'input_sent': False, 'requires_owner_confirmation': False, 'windows': wins}
+        if not window_id:
+            info.update(status='select_target', next_step='Select a returned window and prepare/capture it before input')
+            return CallToolResult(content=[TextContent(type='text', text=json.dumps(info))])
+        target = next((w for w in wins if w['window_id'] == window_id), None)
+        if target is None:
+            info.update(status='target_missing', next_step='Select the current window_id from windows; never reuse the missing target or guess an application to launch')
+            return CallToolResult(content=[TextContent(type='text', text=json.dumps(info))])
+        target_id = target.get('blocked_by_window_id') or window_id
+        captured = capture_window(target_id)
+        capture_info = json.loads(captured.content[0].text)
+        info.update(status='captured', requested_window_id=window_id,
+                    target_window_id=target_id, capture=capture_info)
+        return CallToolResult(content=[TextContent(type='text', text=json.dumps(info)), *captured.content[1:]])
 
 
 @tool()
@@ -308,7 +361,12 @@ def require_session(cfg):
         raise PermissionError("Owner must explicitly enable foreground_session for semantic actions")
     native = backend()
     native.enable_session_stop()
-    native._stop_if_needed()
+    try:
+        native._stop_if_needed()
+    except InterruptedError as exc:
+        if _session_end_reason in {'completed', 'handoff'}:
+            raise InterruptedError('Previous control session ended (' + _session_end_reason + '). The owner asking to continue/try again or requesting a new computer task is sufficient authorization: call prepare_control_session(new_task=True), select/capture the current window, and continue without asking again. Never reuse old capture IDs or replay pending input.') from exc
+        raise
     return native
 
 

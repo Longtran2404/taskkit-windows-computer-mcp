@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.5.0
+# TaskKit.vn Windows Computer Bridge MCP v0.5.1
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -21,6 +21,12 @@ v0.5.0 adds `browser_download` and `browser_download_status`. Download-specific 
 When a client reports `Matched element does not expose a downloadable URL`, the selector may have correctly matched a JavaScript button. TaskKit identifies the native UIA button and sends one guarded physical left click, without requiring a URL, then observes the explicitly selected local download directory. It does not modify or replace the client's `locator.downloadMedia` implementation.
 
 The default is a dry run. The existing owner-authorized session, allowed-process scope, fresh single-use capture, unique enabled button, native timeout recovery and Esc/F12 rules apply. Status calls read filenames/size/mtime only. Stable files are reported as `file_observed`, never as proven browser/source completion. Save As/security prompts require separate inspection; ambiguous, changed existing and partial files are not reported as success. No browser flags, credentials, extensions or security settings are changed.
+
+## Continue without another confirmation
+
+v0.5.1 adds `prepare_control_session(window_id="...", new_task=True)`. The owner's request to continue, try again, or perform a new computer task already authorizes preparing that task. The client should call it automatically without asking the same question again. It opens a stopped session, inspects windows and returns a fresh target capture in one call, with no input or focus change. For an active task, use `new_task=False`; repeated calls do not reset the session or native timeout recovery.
+
+If the target has disappeared, the tool returns the current window list; select the actual window rather than replaying an old action or guessing an application to launch. A blocking dialog is captured for inspection without confirming it. A stopped/cancelled task stays stopped unless a new owner request is represented by `new_task=True`. Held Esc/F12 still blocks reopening. Existing clients can use `start_control_session`, then inspect and capture without another confirmation question.
 
 ## Input modes
 
@@ -52,7 +58,7 @@ This selects applications on the normal Windows desktop; it does not bypass Wind
 
 ## Tools
 
-bridge_status, browser_download, browser_download_status, start_control_session, end_control_session, inspect_windows, capture_window, diagnose_capture, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+bridge_status, prepare_control_session, browser_download, browser_download_status, start_control_session, end_control_session, inspect_windows, capture_window, diagnose_capture, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
 
 ### Finish computer work and hand control back
 

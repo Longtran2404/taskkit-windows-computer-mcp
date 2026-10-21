@@ -56,7 +56,31 @@ async def main(out):
                 assert blocked.isError and 'stopped' in blocked.content[0].text
                 assert (await call('end_control_session'))['ended']
                 # A second explicitly authorized fixture task can start normally.
-                await call('start_control_session');await call('show_live_view',{'window_id':wid})
+                prepared=await call('prepare_control_session',{'window_id':wid,'new_task':True})
+                assert prepared['restarted'] and prepared['status']=='captured'
+                assert not prepared['requires_owner_confirmation']
+                active=await call('prepare_control_session',{'window_id':wid})
+                assert not active['restarted'] and active['status']=='captured'
+                # Exercise app_control after reopening, only on our explicit fixture dialog.
+                (out/'dialog.request').touch()
+                dialog=None
+                for _ in range(80):
+                    windows=await call('inspect_windows')
+                    dialog=next((w for w in windows['windows'] if w['title']=='TaskKit MCP Dialog test'),None)
+                    if dialog:break
+                    await asyncio.sleep(.05)
+                assert dialog, 'Fixture dialog missing'
+                ready=await call('prepare_control_session',{'window_id':dialog['window_id']})
+                controls=(await call('inspect_controls',{'window_id':dialog['window_id']}))['controls']
+                button=next(c for c in controls if c['control_type']==50000 and c['name']=='OK')
+                args={'window_id':dialog['window_id'],'capture_id':ready['capture']['capture_id'],
+                      'control_name':button['name'],'dry_run':False}
+                assert (await call('app_control',args))['invoke_requested']
+                for _ in range(80):
+                    if any(e['kind']=='dialog_closed' for e in state().get('events',[])):break
+                    await asyncio.sleep(.05)
+                assert any(e['kind']=='dialog_closed' for e in state()['events'])
+                await call('show_live_view',{'window_id':wid})
                 assert not (await call('bridge_status'))['session_stopped']
                 assert (await call('end_control_session',{'reason':'handoff'}))['ended']
                 status=await call('bridge_status')
@@ -65,7 +89,7 @@ async def main(out):
                         'held_button_released':True,'preview_and_indicator_closed':True,
                         'old_captures_invalidated':True,'post_finish_input_blocked':True,
                         'read_only_capture_available':True,'repeated_finish_safe':True,
-                        'new_owner_task_and_handoff_verified':True,'application_preserved':True}
+                        'new_owner_task_and_handoff_verified':True,'app_control_after_prepare_verified':True,'application_preserved':True}
                 (out/'report.json').write_text(json.dumps(report,indent=2));print(json.dumps(report),flush=True)
     finally:
         (out/'close.request').touch()

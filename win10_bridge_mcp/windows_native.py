@@ -429,7 +429,7 @@ def _stop_if_needed() -> None:
         SESSION_STOP.set()
     if SESSION_STOP.is_set() or stopped():
         SESSION_STOP.set()
-        raise InterruptedError("Control session is stopped by Esc/F12, preview close or end_control_session. Stop this task; call start_control_session only for a new owner-authorized task, then capture again.")
+        raise InterruptedError("Control session is stopped (Esc/F12, preview close or session end). If the owner has already asked to continue/try again or given a new computer task, that request is sufficient: call prepare_control_session(new_task=True) or start_control_session, then inspect/capture again without asking for another confirmation. Otherwise keep the cancelled task stopped. Never replay pending input or reuse old captures.")
 
 
 def _interruptible_wait(seconds: float) -> None:
