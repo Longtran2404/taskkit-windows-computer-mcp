@@ -64,7 +64,7 @@ def main():
                     break
             time.sleep(.5)
         else:
-            
+
             if target:
                 wid = target.get('blocked_by_window_id') or target['window_id']
                 report['blocking_controls'] = server.inspect_controls(wid)['controls']
@@ -111,4 +111,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
