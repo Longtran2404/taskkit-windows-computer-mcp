@@ -66,10 +66,15 @@ async def main(out):
                 dialog=None
                 for _ in range(80):
                     windows=await call('inspect_windows')
-                    dialog=next((w for w in windows['windows'] if w['title']=='TaskKit MCP Dialog test'),None)
+                    dialog=next((w for w in windows['windows'] if w['title']=='TaskKit MCP Dialog test' and w['pid']==state()['pid']),None)
                     if dialog:break
                     await asyncio.sleep(.05)
                 assert dialog, 'Fixture dialog missing'
+                ready=await call('prepare_control_session',{'window_id':dialog['window_id']})
+                # Foreground the fixture dialog with one harmless Tab; app_control itself
+                # deliberately does not activate background app providers.
+                await call('press_key',{'window_id':dialog['window_id'],
+                           'capture_id':ready['capture']['capture_id'],'key':'tab','dry_run':False})
                 ready=await call('prepare_control_session',{'window_id':dialog['window_id']})
                 controls=(await call('inspect_controls',{'window_id':dialog['window_id']}))['controls']
                 button=next(c for c in controls if c['control_type']==50000 and c['name']=='OK')
