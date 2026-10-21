@@ -1,4 +1,4 @@
-# TaskKit.vn Windows Computer Bridge MCP v0.4.10
+# TaskKit.vn Windows Computer Bridge MCP v0.5.0
 
 [![Tests](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/Longtran2404/taskkit-windows-computer-mcp/actions/workflows/tests.yml)
 
@@ -13,6 +13,14 @@ Local Windows MCP bridge for allowed windows. PNG screenshots are returned as MC
 v0.4.10 adds `diagnose_capture` to distinguish a captured window, suspicious blank frame and bounded native failure. Optional desktop observation is explicit, requires all-app scope and never issues input tickets or clears cancellation/recovery. See the guide for safe first-test steps and updates; reconnect the MCP once after installing a new version.
 
 Verified locally: 75 unit tests, 24-tool MCP handshake, installed-package diagnostic capture on two Windows 10 monitors, and installed finish/handoff regression. The diagnostic leaves a stopped session stopped and preserves the timeout gate. These fixture checks do not certify CapCut editor/GPU content.
+
+## Edge and Chrome downloads
+
+v0.5.0 adds `browser_download` and `browser_download_status`. Download-specific regression tests cover file stability, partial files, ambiguity, stale/invalid captures, cancellation, expiry and no replay. See [the browser download guide](docs/BROWSER_DOWNLOADS.md).
+
+When a client reports `Matched element does not expose a downloadable URL`, the selector may have correctly matched a JavaScript button. TaskKit identifies the native UIA button and sends one guarded physical left click, without requiring a URL, then observes the explicitly selected local download directory. It does not modify or replace the client's `locator.downloadMedia` implementation.
+
+The default is a dry run. The existing owner-authorized session, allowed-process scope, fresh single-use capture, unique enabled button, native timeout recovery and Esc/F12 rules apply. Status calls read filenames/size/mtime only. Stable files are reported as `file_observed`, never as proven browser/source completion. Save As/security prompts require separate inspection; ambiguous, changed existing and partial files are not reported as success. No browser flags, credentials, extensions or security settings are changed.
 
 ## Input modes
 
@@ -44,7 +52,7 @@ This selects applications on the normal Windows desktop; it does not bypass Wind
 
 ## Tools
 
-bridge_status, start_control_session, end_control_session, inspect_windows, capture_window, diagnose_capture, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
+bridge_status, browser_download, browser_download_status, start_control_session, end_control_session, inspect_windows, capture_window, diagnose_capture, capture_desktop, list_monitors, app_control, click_left, click_right, click_middle, scroll_mouse, mouse_action, type_text, press_key, inspect_controls, control_action, list_drives, open_directory, save_notepad_text, show_live_view, close_live_view, emergency_release.
 
 ### Finish computer work and hand control back
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.0 - 2026-10-21
+
+Developed by TaskKit.vn - Minh Long Tran.
+
+- Add Edge/Chrome `browser_download`: validate the existing session, browser identity, fresh capture and unique enabled UIA button, snapshot the selected download directory, then send one guarded physical left click. Handles JavaScript/blob download buttons without requiring a direct media URL. Default dry run; no changes to browser settings or OpenAI binaries.
+- Add bounded metadata-only `browser_download_status` receipts, with temporary-file tracking, one-second size/mtime stability, expected filename filtering, replacement/ambiguity review and one-hour expiry. File observation is explicitly distinguished from browser/source attribution.
+- Preserve native timeout recovery, Esc/F12 cancellation and single-use capture guards. Uncertain invocation returns a receipt for observation and is never automatically repeated. Prompts require explicit fresh inspection.
+- Document URL-based download failures and the browser UI fallback, including supported/unsupported controls and validation limits.
+
+
+- Validation: 101 tests passed, one symlink-privilege skip; 26-tool stdio handshake. Installed v0.5.0 downloaded the exact 38-byte JavaScript/blob fixture on Chrome and Edge (isolated InPrivate), and finished with overlays closed and captures invalidated. Existing bridge/Codex configuration hashes were preserved. Normal Edge profile onboarding and external websites remain separately unverified.
+
 ## 0.4.10 - 2026-10-16
 
 Developed by TaskKit.vn - Minh Long Tran.

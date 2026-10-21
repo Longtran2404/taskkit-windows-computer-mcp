@@ -32,7 +32,13 @@ SESSION_FINISH_INSTRUCTIONS = (
     'cancelled or uncertain operation. A native timeout is recovered by inspection '
     'and a fresh capture, not by asking the owner to restart.'
 )
-mcp = FastMCP(APP_NAME, instructions=SESSION_FINISH_INSTRUCTIONS)
+mcp = FastMCP(APP_NAME, instructions=SESSION_FINISH_INSTRUCTIONS + (
+    ' For Edge/Chrome download buttons without an exposed URL (downloadMedia '
+    'failure), use browser_download and browser_download_status after inspecting '
+    'controls and capturing. This sends one physical click, shares pointer/focus, '
+    'and observes the explicitly selected download directory. Never replay an '
+    'uncertain click. File observation alone does not prove source/completion.'
+))
 REGISTRY = CaptureRegistry()
 MOUSE_MUTEX = threading.RLock()
 _session_end_reason = None
@@ -106,6 +112,7 @@ def bridge_status() -> dict:
         "backend": "native_win32",
         "initialization": "automatic on MCP startup / first native call",
         "requires_sky": False,
+        "browser_downloads": "browser_download / browser_download_status: Edge and Chrome guarded button click + metadata-only file observation; no direct URL required",
         "capture_diagnostics": "diagnose_capture: bounded PrintWindow test, optional explicit desktop observation, no input ticket",
         "control_indicator_active": indicator.active(),
         "control_indicator_displays": indicator.status(),
@@ -368,7 +375,8 @@ def app_control(window_id: str, capture_id: str, automation_id: str = "",
                   and c["control_type"]==(50004 if action=="set_value" else 50000)]
         if len(controls)!=1 or not controls[0]["enabled"]:
             raise ValueError("Expected exactly one enabled control with this ID")
-        if dry_run:return {"dry_run":True,"action":action,"physical_input":False}
+        if dry_run:return {"dry_run":True,"action":action,"physical_input":False,
+                           "target_rect": controls[0]["rect"]}
         before=native.POINT()
         if not native.U.GetCursorPos(before):raise RuntimeError("Cannot inspect pointer position")
         foreground=native.U.GetForegroundWindow()
@@ -384,6 +392,77 @@ def app_control(window_id: str, capture_id: str, automation_id: str = "",
                 "invoke_requested":action=="invoke","pointer_unchanged":(before.x,before.y)==(after.x,after.y),
                 "focus_unchanged":foreground==native.U.GetForegroundWindow(),
                 "notice":"App provider controls the result; verify the resulting UI/file"}
+
+
+@tool()
+def browser_download(window_id: str, capture_id: str, download_dir: str,
+                     automation_id: str = "", control_name: str = "",
+                     expected_filename: str = "", dry_run: bool = True) -> dict:
+    """Click one inspected download button in Edge/Chrome without a direct URL.
+
+    Use when downloadMedia reports 'Matched element does not expose a downloadable
+    URL', including JavaScript/blob download buttons. Inspect controls and capture
+    first. download_dir is the owner's existing browser download destination; this
+    tool never changes browser settings, retrieves credentials or bypasses prompts.
+    Exactly one enabled UIA button must match automation_id OR control_name.
+    Sends one physical left click using existing foreground/hit-target guards;
+    shares the real pointer/focus. Does not fall back or retry via UIA invocation.
+    Check browser_download_status afterwards; invocation alone is NOT completion.
+    Pending/uncertain results must never trigger another click automatically.
+    Unsupported controls require a fresh capture and an explicit ordinary click.
+    """
+    from . import downloads
+    cfg = load_config()
+    with MOUSE_MUTEX:
+        native = require_session(cfg)
+        win = native.get_window(window_id, cfg['allowed'])
+        if win.exe.lower() not in {'msedge.exe', 'chrome.exe'}:
+            raise ValueError('browser_download supports only msedge.exe and chrome.exe')
+        # Validate session, target and capture before creating a receipt or invoking.
+        preview = app_control(window_id, capture_id, automation_id=automation_id,
+                              control_name=control_name, dry_run=True)
+        rect = preview['target_rect']
+        if rect[2] <= rect[0] or rect[3] <= rect[1]:
+            raise ValueError('Download button has no visible bounds; capture and inspect again')
+        x = (rect[0] + rect[2]) // 2 - win.rect.left
+        y = (rect[1] + rect[3]) // 2 - win.rect.top
+        win.rect.absolute(x, y)
+        path = downloads.directory(download_dir)
+        if dry_run:
+            # Full filename/baseline validation without retaining an observation.
+            probe = downloads.DownloadRegistry()
+            probe.prepare(str(path), expected_filename)
+            return {**preview, 'physical_input': True, 'input_sent': False,
+                    'browser': win.exe, 'download_dir': str(path),
+                    'direct_url_required': False, 'notice': 'Dry run; no button invoked or download started'}
+        token = downloads.REGISTRY.prepare(str(path), expected_filename)
+        downloads.REGISTRY.invocation(token, 'uncertain')
+        try:
+            # A real user gesture supports Chromium's download activation gates.
+            # Never try UIA first and then click: that could start two downloads.
+            click_left(window_id, capture_id, x, y, dry_run=False)
+        except Exception as exc:
+            # Preserve the receipt so the caller can observe a possible side effect.
+            # Do not swallow cancellation/recovery: report uncertainty, never retry.
+            return {'download_id': token, 'status': 'action_uncertain',
+                    'error': str(exc)[:500], 'error_type': type(exc).__name__,
+                    'notice': 'Inspect windows and capture again; check browser_download_status. Do not repeat the button invocation.'}
+        downloads.REGISTRY.invocation(token, 'requested')
+        return downloads.REGISTRY.status(token)
+
+
+@tool()
+def browser_download_status(download_id: str) -> dict:
+    """Read one download receipt without input, URL fetching or opening file contents.
+
+    Poll after at least one second. file_observed means one new final-name file is
+    stable in size/mtime and no changed partial file remains; browser/source identity
+    is not proven. Multiple/replaced files require review. If waiting, inspect the
+    browser and Save As/security prompts explicitly; never replay the click.
+    Reads do not rearm Esc/F12 or clear native timeout recovery. IDs expire in 1h.
+    """
+    from .downloads import REGISTRY as download_registry
+    return download_registry.status(download_id)
 
 
 @tool()
